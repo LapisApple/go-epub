@@ -88,26 +88,80 @@ type Metadata struct {
 
 // Manifest lists every file that is part of the epub.
 type Manifest struct {
-	Items []Item `xml:"manifest>item"`
+	Items []ManifestItem `xml:"manifest>item"`
 }
 
-// Item represents a file stored in the epub.
-type Item struct {
-	ID        string `xml:"id,attr"`
-	HREF      string `xml:"href,attr"`
-	MediaType string `xml:"media-type,attr"`
-	f         *zip.File
+// ManifestItem represents a file stored in the epub.
+type ManifestItem struct {
+	ID         string `xml:"id,attr"`
+	HREF       string `xml:"href,attr"`
+	MediaType  string `xml:"media-type,attr"`
+	Properties string `xml:"properties,attr"`
+	f          *zip.File
+}
+
+func (m *ManifestItem) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type Alias ManifestItem
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(m),
+	}
+
+	knownFields := map[string]bool{
+		"id":         true,
+		"href":       true,
+		"media-type": true,
+		"properties": true,
+	}
+
+	for _, attr := range start.Attr {
+		if !knownFields[attr.Name.Local] {
+			return errors.New("epub: unknown field in manifest item: " + attr.Name.Local)
+		}
+	}
+
+	return d.DecodeElement(aux, &start)
 }
 
 // Spine defines the reading order of the epub documents.
 type Spine struct {
-	Itemrefs []Itemref `xml:"spine>itemref"`
+	Itemrefs []SpineItem `xml:"spine>itemref"`
 }
 
-// Itemref points to an Item.
-type Itemref struct {
-	IDREF string `xml:"idref,attr"`
-	*Item
+// SpineItem points to an Item.
+type SpineItem struct {
+	SpineItemData
+	*ManifestItem `json:"-"`
+}
+
+type SpineItemData struct {
+	IDREF           string `xml:"idref,attr"`
+	Linear          string `xml:"linear,attr"`
+	SpineProperties string `xml:"properties,attr"`
+}
+
+func (m *SpineItem) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type Alias SpineItemData
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(&m.SpineItemData),
+	}
+
+	knownFields := map[string]bool{
+		"idref":      true,
+		"linear":     true,
+		"properties": true,
+	}
+
+	for _, attr := range start.Attr {
+		if !knownFields[attr.Name.Local] {
+			return errors.New("epub: unknown field in manifest item: " + attr.Name.Local)
+		}
+	}
+
+	return d.DecodeElement(aux, &start)
 }
 
 // OpenReader will open the epub file specified by name and return a
@@ -221,7 +275,7 @@ func (r *Reader) setPackages() error {
 func (r *Reader) setItems() error {
 	itemrefCount := 0
 	for _, rf := range r.Container.Rootfiles {
-		itemMap := make(map[string]*Item)
+		itemMap := make(map[string]*ManifestItem)
 		for i := range rf.Manifest.Items {
 			item := &rf.Manifest.Items[i]
 			itemMap[item.ID] = item
@@ -232,8 +286,8 @@ func (r *Reader) setItems() error {
 
 		for i := range rf.Spine.Itemrefs {
 			itemref := &rf.Spine.Itemrefs[i]
-			itemref.Item = itemMap[itemref.IDREF]
-			if itemref.Item == nil {
+			itemref.ManifestItem = itemMap[itemref.IDREF]
+			if itemref.ManifestItem == nil {
 				return ErrBadItemref
 			}
 		}
@@ -249,7 +303,7 @@ func (r *Reader) setItems() error {
 
 // Open returns a ReadCloser that provides access to the Items's contents.
 // Multiple items may be read concurrently.
-func (item *Item) Open() (r io.ReadCloser, err error) {
+func (item *ManifestItem) Open() (r io.ReadCloser, err error) {
 	if item.f == nil {
 		return nil, ErrBadManifest
 	}

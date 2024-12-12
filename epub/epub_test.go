@@ -85,10 +85,10 @@ func (ct *containerTest) TestSpine() {
 				t.Errorf(expFormat, tc.expIDREF, itemref.IDREF)
 			}
 
-			if itemref.Item == nil {
+			if itemref.ManifestItem == nil {
 				t.Errorf(expFormat, "not nil", "nil")
-			} else if itemref.Item.ID != tc.expIDREF {
-				t.Errorf(expFormat, tc.expIDREF, itemref.Item.ID)
+			} else if itemref.ManifestItem.ID != tc.expIDREF {
+				t.Errorf(expFormat, tc.expIDREF, itemref.ManifestItem.ID)
 			}
 		})
 	}
