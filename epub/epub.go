@@ -338,7 +338,8 @@ type NavPoint struct {
 	Content   []struct {
 		Path string `xml:"src,attr"`
 	} `xml:"content"`
-	Children []NavPoint
+	// haven't seen this irl, but the rust crate has it so i guess it's real
+	Children []NavPoint `xml:"navPoint"`
 }
 
 func (m *NavPoint) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
@@ -437,9 +438,10 @@ func (r *Reader) setToc() error {
 		tocAmount++
 	}
 
-	if tocAmount < 1 {
-		return errors.New("epub: no toc found")
-	}
+	// can't return error here because some epubs don't have a toc
+	// if tocAmount < 1 {
+	// 	return errors.New("epub: no toc found")
+	// }
 
 	return nil
 }
