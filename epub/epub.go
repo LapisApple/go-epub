@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -50,6 +51,12 @@ type ReadCloser struct {
 type Rootfile struct {
 	FullPath string `xml:"full-path,attr"`
 	Package
+	Toc Toc
+}
+
+type Toc struct {
+	DocTitle  string     `xml:"docTitle>text"`
+	NavPoints []NavPoint `xml:"navMap>navPoint"`
 }
 
 // Container serves as a directory of Rootfiles.
@@ -59,10 +66,23 @@ type Container struct {
 
 // Package represents an epub content.opf file.
 type Package struct {
+	UniqueIdentifier string `xml:"unique-identifier,attr"`
 	Metadata
 	Manifest
-	Spine
+	Spine Spine `xml:"spine"`
 }
+
+// for r in &manifest.borrow().children {
+// 	let item = r.borrow();
+// 	if self.cover_id.is_none() {
+// 		if let (Some(id), Some(property)) = (item.get_attr("id"), item.get_attr("properties")) {
+// 			if property == "cover-image" {
+// 				self.cover_id = Some(id);
+// 			}
+// 		}
+// 	}
+// 	let _ = self.insert_resource(&item);
+// }
 
 // Metadata contains publishing information about the epub.
 type Metadata struct {
@@ -93,9 +113,10 @@ type Manifest struct {
 
 // ManifestItem represents a file stored in the epub.
 type ManifestItem struct {
-	ID         string `xml:"id,attr"`
-	HREF       string `xml:"href,attr"`
-	MediaType  string `xml:"media-type,attr"`
+	ID        string `xml:"id,attr"`
+	HREF      string `xml:"href,attr"`
+	MediaType string `xml:"media-type,attr"`
+	// properties are skipped by the rust crate
 	Properties string `xml:"properties,attr"`
 	f          *zip.File
 }
@@ -126,7 +147,9 @@ func (m *ManifestItem) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 
 // Spine defines the reading order of the epub documents.
 type Spine struct {
-	Itemrefs []SpineItem `xml:"spine>itemref"`
+	Itemrefs []SpineItem `xml:"itemref"`
+	Toc      string      `xml:"toc,attr"`
+	PPD      string      `xml:"page-progression-direction,attr"`
 }
 
 // SpineItem points to an Item.
@@ -136,9 +159,11 @@ type SpineItem struct {
 }
 
 type SpineItemData struct {
-	IDREF           string `xml:"idref,attr"`
-	Linear          string `xml:"linear,attr"`
-	SpineProperties string `xml:"properties,attr"`
+	IDREF           string `xml:"idref,attr" json:",omitempty"`
+	Linear          string `xml:"linear,attr" json:",omitempty"`
+	SpineProperties string `xml:"properties,attr" json:",omitempty"`
+	// have never seen this irl, but the rust crate has it so i guess it's real
+	SpineID string `xml:"id,attr" json:",omitempty"`
 }
 
 func (m *SpineItem) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
@@ -209,6 +234,11 @@ func (r *Reader) init(z *zip.Reader) error {
 		return err
 	}
 	err = r.setItems()
+	if err != nil {
+		return err
+	}
+
+	err = r.setToc()
 	if err != nil {
 		return err
 	}
@@ -299,6 +329,148 @@ func (r *Reader) setItems() error {
 	}
 
 	return nil
+}
+
+type NavPoint struct {
+	ID        string `xml:"id,attr"`
+	PlayOrder string `xml:"playOrder,attr"`
+	Label     string `xml:"navLabel>text"`
+	Content   []struct {
+		Path string `xml:"src,attr"`
+	} `xml:"content"`
+	Children []NavPoint
+}
+
+func (m *NavPoint) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type Alias NavPoint
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(m),
+	}
+
+	knownFields := map[string]bool{
+		"id":        true,
+		"playOrder": true,
+		// useless
+		"class": true,
+	}
+
+	knownChildren := map[string]bool{
+		"navLabel": true,
+		"content":  true,
+	}
+
+	for _, attr := range start.Attr {
+		if !knownFields[attr.Name.Local] {
+			return errors.New("epub: unknown field in manifest item: " + attr.Name.Local)
+		}
+	}
+
+	err := d.DecodeElement(aux, &start)
+	if err != nil {
+		return err
+	}
+
+	for {
+		t, err := d.Token()
+		if err == io.EOF {
+			return nil
+		} else if err != nil {
+			return err
+		}
+
+		switch se := t.(type) {
+		case xml.StartElement:
+			if !knownChildren[se.Name.Local] {
+				return fmt.Errorf("Error Unknown Child: %s", se.Name.Local)
+			}
+		case xml.EndElement:
+			if se.Name == start.Name {
+				return nil
+			}
+		}
+	}
+}
+
+func (r *Reader) setToc() error {
+	tocAmount := 0
+	for _, rf := range r.Container.Rootfiles {
+		tocId := rf.Spine.Toc
+		fmt.Printf("tocId: %s\n", tocId)
+		if len(tocId) == 0 {
+			continue
+		}
+
+		tocPath := ""
+		for _, item := range rf.Manifest.Items {
+			if item.ID != tocId {
+				continue
+			}
+			tocPath = item.HREF
+			break
+		}
+
+		if len(tocPath) == 0 {
+			return errors.New("epub: toc item not found")
+		}
+
+		absolutPath := path.Join(path.Dir(rf.FullPath), tocPath)
+		fmt.Printf("absolutPath: %s\n", absolutPath)
+		tocFile, ok := r.files[absolutPath]
+		if !ok {
+			fmt.Printf("tocPath: %s\n", tocPath)
+			fmt.Printf("tokFile %v\n", tocFile)
+			for k, _ := range r.files {
+				fmt.Printf("key: %s\n", k)
+			}
+			return errors.New("epub: toc zip file not in epub zip map")
+		}
+
+		navPoints, err := r.parseTocFile(tocFile)
+		if err != nil {
+			return err
+		}
+
+		// set stuff
+		rf.Toc = navPoints
+		tocAmount++
+	}
+
+	if tocAmount < 1 {
+		return errors.New("epub: no toc found")
+	}
+
+	return nil
+}
+
+func (r *Reader) parseTocFile(tocFile *zip.File) (Toc, error) {
+	toc := Toc{}
+
+	f, err := tocFile.Open()
+	if err != nil {
+		return Toc{}, err
+	}
+
+	var b bytes.Buffer
+	_, err = io.Copy(&b, f)
+	if err != nil {
+		return Toc{}, err
+	}
+
+	err = xml.Unmarshal(b.Bytes(), &toc)
+	if err != nil {
+		return Toc{}, err
+	}
+
+	fmt.Println(" -------------  current   ---------------")
+
+	fmt.Printf("navPoints: %v\n", toc)
+	fmt.Printf("fileContent %s\n", b.String())
+
+	fmt.Println(" -------------  next   ---------------")
+
+	return toc, nil
 }
 
 // Open returns a ReadCloser that provides access to the Items's contents.
