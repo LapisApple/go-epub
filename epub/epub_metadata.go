@@ -120,7 +120,6 @@ func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
 	}
 	err = xml.Unmarshal(data, &customMetadata)
 	if err != nil {
-		quant.PrintError("error %v\n", err)
 		return err
 	}
 
