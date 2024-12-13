@@ -68,7 +68,7 @@ type CustomMetadataInfo struct {
 }
 
 type MetaTags struct {
-	Metatags []MetaTag `xml:"meta"`
+	Metatags []MetaTag `xml:"metadata>meta"`
 }
 
 type MetaTag struct {
@@ -77,6 +77,8 @@ type MetaTag struct {
 	Refines  string `xml:"refines,attr"`
 	Property string `xml:"property,attr"`
 	InnerXML string `xml:",innerxml"`
+	// not needed
+	// Scheme   string `xml:"scheme,attr"`
 }
 
 type Creator struct {
@@ -210,38 +212,6 @@ func (m *CustomMetadataInfo) UnmarshalXML(d *xml.Decoder, start xml.StartElement
 		}
 	}
 }
-
-// if tt.Name.Local == "meta" {
-// 	name := ""
-// 	content := ""
-// 	property := ""
-// 	for _, attr := range tt.Attr {
-// 		if attr.Name.Local == "name" {
-// 			name = attr.Value
-// 		} else if attr.Name.Local == "content" {
-// 			content = attr.Value
-// 		} else if attr.Name.Local == "property" {
-// 			property = attr.Value
-// 		}
-// 	}
-
-// 	if len(name) > 0 && len(content) > 0 {
-// 		if name == "cover" {
-// 			m.CoverId = content
-// 		} else {
-// 			if _, ok := m.OtherTags[name]; !ok {
-// 				m.OtherTags[name] = make([]string, 0)
-// 			}
-// 			m.OtherTags[name] = append(m.OtherTags[name], content)
-// 		}
-// 	} else if len(property) > 0 {
-// 		if property == "cover-image" {
-// 			m.CoverId = name
-// 		}
-// 	}
-// } else {
-
-// }
 
 // setContainer unmarshals the epub's container.xml file.
 func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
