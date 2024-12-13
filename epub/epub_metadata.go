@@ -105,9 +105,9 @@ func getMetadataFromFileBytes(data []byte) ([]byte, error) {
 
 var tempData = make(map[string][]string)
 
-const debugEpubMetadata = true
-
-const debugParsedEpubMetadata = false
+const debugEpubMetadata = false
+const debugPrintOtherTags = false
+const debugPrintParsedMetaTags = false
 
 // setContainer unmarshals the epub's container.xml file.
 func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
@@ -123,7 +123,9 @@ func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
 		return err
 	}
 
-	// quant.PrettyPrint("customMetadata:\n %s\n", customMetadata)
+	if debugPrintParsedMetaTags {
+		quant.PrettyPrint("customMetadata:\n %s\n", customMetadata)
+	}
 
 	refinesFileAs := make(map[string]string)
 	refinesCreatorType := make(map[string]string)
@@ -187,16 +189,13 @@ func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
 	setNullField(refinesDCTerms, "title", &rf.Metadata.Title.Name)
 	setNullField(refinesDCTerms, "language", &rf.Metadata.Language)
 	setNullField(refinesDCTerms, "identifier", &rf.Metadata.Identifier)
-	// setNullField(refinesDCTerms, "date", &rf.Metadata.Event[?].Date)
+	// hard to implement for creator and pretty useless because ID would be known and points somewhere,
+	// which likely means that the creator name is already known
 	// setNullField(refinesDCTerms, "creator", &rf.Metadata.Creator[?].Name)
 
 	// set title and file-as + title-type
-	// titleKey := "title"
-	// if len(rf.Metadata.Title.ID) > 0 {
-	// 	titleKey = rf.Metadata.Title.ID
-	// }
-	setNullField(refinesFileAs, "title", &rf.Metadata.Title.FileAs)
-	setNullField(refineTitleType, "title", &rf.Metadata.Title.TitleType)
+	setNullField(refinesFileAs, rf.Metadata.Title.ID, &rf.Metadata.Title.FileAs)
+	setNullField(refineTitleType, rf.Metadata.Title.ID, &rf.Metadata.Title.TitleType)
 
 	// set publisher file-as
 	setNullField(refinesFileAs, "publisher", &rf.Metadata.Publisher.FileAs)
@@ -249,12 +248,12 @@ func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
 		fmt.Println("...End DebugUnusedEpubMetadata Printing")
 	}
 
-	if debugParsedEpubMetadata {
-		fmt.Println("Start DebugParsedEpubMetadata Printing...")
+	if debugPrintOtherTags {
+		fmt.Println("Start DebugOtherTags Printing...")
 		if len(rf.Metadata.OtherTags) > 0 {
 			quant.PrettyPrint("OtherTags:\n %s\n", rf.Metadata.OtherTags)
 		}
-		fmt.Println("...End DebugParsedEpubMetadata Printing")
+		fmt.Println("...End DebugOtherTags Printing")
 	}
 
 	return nil
