@@ -96,7 +96,7 @@ type Spine struct {
 // SpineItem points to an Item.
 type SpineItem struct {
 	SpineItemData
-	*ManifestItem `json:"-"`
+	*ManifestItem `xml:"-" json:"-"`
 }
 
 type SpineItemData struct {
