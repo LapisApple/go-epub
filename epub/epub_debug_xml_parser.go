@@ -1,6 +1,6 @@
 //go:build debug_xml_parser
-// +build debug_xml_parser
 
+// example for debug run command: "go run -tags debug_xml_parser .\main.go"
 package epub
 
 import (
@@ -88,6 +88,8 @@ func (m *NavPoint) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		return err
 	}
 
+	// this is useless because the stream is already used up
+	// due to the DecodeElement call
 	for {
 		t, err := d.Token()
 		if err == io.EOF {
