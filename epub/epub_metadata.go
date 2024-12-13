@@ -30,9 +30,10 @@ type Metadata struct {
 	Coverage string `xml:"coverage"`
 	Rights   string `xml:"rights"`
 	// custom
-	OtherTags          map[string][]string `xml:"-"`
-	CoverManifestId    string              `xml:"-"`
-	PrimaryWritingMode string              `xml:"-"`
+	OtherTags       map[string][]string `xml:"-"`
+	CoverManifestId string              `xml:"-"`
+	// might contain duplicates
+	PrimaryWritingMode []string `xml:"-"`
 }
 
 type MetaTags struct {
@@ -61,6 +62,24 @@ type Creator struct {
 	DisplaySeq  string `xml:"display-seq,attr"`
 }
 
+func (c *Creator) setNullFields(refineFileAs, refinesCreatorType, refinesCreatorDisplaySeq map[string]string) {
+	if len(c.ID) == 0 {
+		return
+	}
+	setNullField(refineFileAs, c.ID, &c.FileAs)
+	setNullField(refinesCreatorType, c.ID, &c.CreatorRole)
+	setNullField(refinesCreatorDisplaySeq, c.ID, &c.DisplaySeq)
+}
+
+func setNullField(data map[string]string, key string, res *string) {
+	if newValue, ok := data[key]; ok && len(*res) == 0 {
+		*res = newValue
+		if debugEpubMetadata {
+			delete(data, key)
+		}
+	}
+}
+
 type Title struct {
 	Refinable
 	TitleType string `xml:"title-type,attr"`
@@ -86,6 +105,10 @@ func getMetadataFromFileBytes(data []byte) ([]byte, error) {
 
 var tempData = make(map[string][]string)
 
+const debugEpubMetadata = true
+
+const debugParsedEpubMetadata = false
+
 // setContainer unmarshals the epub's container.xml file.
 func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
 	customMetadata := MetaTags{}
@@ -99,10 +122,10 @@ func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
 		quant.PrintError("error %v\n", err)
 		return err
 	}
-	//
-	quant.PrettyPrint("customMetadata:\n %s\n", customMetadata)
 
-	refineFileAs := make(map[string]string)
+	// quant.PrettyPrint("customMetadata:\n %s\n", customMetadata)
+
+	refinesFileAs := make(map[string]string)
 	refinesCreatorType := make(map[string]string)
 	refinesDCTerms := make(map[string]string)
 	refinesCreatorDisplaySeq := make(map[string]string)
@@ -114,10 +137,9 @@ func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
 	for _, meta := range customMetadata.Metatags {
 		if len(meta.Name) > 0 && len(meta.Content) > 0 {
 			if meta.Name == "cover" {
+				// only set cover if it hasn't been set yet
 				if len(rf.Metadata.CoverManifestId) == 0 {
 					rf.Metadata.CoverManifestId = meta.Content
-				} else {
-					quant.PrintError("cover already exists %s\n", meta.Content)
 				}
 			} else {
 				if _, ok := rf.Metadata.OtherTags[meta.Name]; !ok {
@@ -131,7 +153,7 @@ func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
 			refines := meta.Refines[1:]
 			switch meta.Property {
 			case "file-as":
-				refineFileAs[refines] = meta.InnerXML
+				refinesFileAs[refines] = meta.InnerXML
 			case "role":
 				refinesCreatorType[refines] = meta.InnerXML
 			case "display-seq":
@@ -148,11 +170,13 @@ func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
 					continue
 				}
 
-				// is none
-				if _, ok := tempData[meta.Property]; !ok {
-					tempData[meta.Property] = make([]string, 0)
+				// debugging purposes (info about unknown meta tags)
+				if debugEpubMetadata {
+					if _, ok := tempData[meta.Property]; !ok {
+						tempData[meta.Property] = make([]string, 0)
+					}
+					tempData[meta.Property] = append(tempData[meta.Property], refines+":-:"+meta.InnerXML)
 				}
-				tempData[meta.Property] = append(tempData[meta.Property], refines+":-:"+meta.InnerXML)
 			}
 		} else if len(meta.Property) > 0 {
 			rf.Metadata.OtherTags[meta.Property] = append(rf.Metadata.OtherTags[meta.Property], meta.InnerXML)
@@ -160,78 +184,78 @@ func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
 	}
 
 	// try setting dcterms
-	if title, ok := refinesDCTerms["title"]; ok && len(rf.Metadata.Title.Name) == 0 {
-		rf.Metadata.Title.Name = title
-	}
-	if language, ok := refinesDCTerms["language"]; ok && len(rf.Metadata.Language) == 0 {
-		rf.Metadata.Language = language
-	}
-	if identifier, ok := refinesDCTerms["identifier"]; ok && len(rf.Metadata.Identifier) == 0 {
-		rf.Metadata.Identifier = identifier
-	}
-	// if date, ok := refinesDCTerms["date"]; ok {
-	// }
-	// if creator, ok := refinesDCTerms["creator"]; ok {
-	// 	rf.Metadata.Creator = append(rf.Metadata.Creator, Creator{Name: creator})
-	// }
+	setNullField(refinesDCTerms, "title", &rf.Metadata.Title.Name)
+	setNullField(refinesDCTerms, "language", &rf.Metadata.Language)
+	setNullField(refinesDCTerms, "identifier", &rf.Metadata.Identifier)
+	// setNullField(refinesDCTerms, "date", &rf.Metadata.Event[?].Date)
+	// setNullField(refinesDCTerms, "creator", &rf.Metadata.Creator[?].Name)
 
-	// set title and publisher file-as
-	if title, ok := refineFileAs["title"]; ok {
-		rf.Metadata.Title.FileAs = title
-	}
-	if titleType, ok := refineTitleType[rf.Metadata.Title.ID]; ok {
-		// fmt.Printf("titleTypeSet %s\n", titleType)
-		rf.Metadata.Title.TitleType = titleType
-	}
-	if publisher, ok := refineFileAs["publisher"]; ok {
-		rf.Metadata.Publisher.FileAs = publisher
-	}
+	// set title and file-as + title-type
+	// titleKey := "title"
+	// if len(rf.Metadata.Title.ID) > 0 {
+	// 	titleKey = rf.Metadata.Title.ID
+	// }
+	setNullField(refinesFileAs, "title", &rf.Metadata.Title.FileAs)
+	setNullField(refineTitleType, "title", &rf.Metadata.Title.TitleType)
+
+	// set publisher file-as
+	setNullField(refinesFileAs, "publisher", &rf.Metadata.Publisher.FileAs)
 
 	// set creator file-as + role + display-seq
 	for i := range rf.Metadata.Creator {
 		c := &rf.Metadata.Creator[i]
-		if len(c.ID) == 0 {
-			continue
-		}
-		if creatorFileAs, ok := refineFileAs[c.ID]; ok {
-			c.FileAs = creatorFileAs
-		}
-		if creatorRole, ok := refinesCreatorType[c.ID]; ok {
-			c.CreatorRole = creatorRole
-		}
-		if creatorDisplaySeq, ok := refinesCreatorDisplaySeq[c.ID]; ok {
-			c.DisplaySeq = creatorDisplaySeq
-		}
+		c.setNullFields(refinesFileAs, refinesCreatorType, refinesCreatorDisplaySeq)
 	}
 
-	// set contributor file-as + role
+	// set contributor file-as + role (+ display-seq)
 	for i := range rf.Metadata.Contributor {
 		c := &rf.Metadata.Contributor[i]
-		if len(c.ID) == 0 {
-			continue
-		}
-		if contributorFileAs, ok := refineFileAs[c.ID]; ok {
-			c.FileAs = contributorFileAs
-		}
-		if contributorRole, ok := refinesCreatorType[c.ID]; ok {
-			c.CreatorRole = contributorRole
-		}
+		c.setNullFields(refinesFileAs, refinesCreatorType, refinesCreatorDisplaySeq)
 	}
 
 	// get primary writing mode
-	if primaryWritingMode, ok := rf.Metadata.OtherTags["primary-writing-mode"]; ok && len(primaryWritingMode) > 0 {
-		rf.Metadata.PrimaryWritingMode = primaryWritingMode[0]
-		if len(primaryWritingMode) > 1 {
-			quant.PrintError("primary-writing-mode more than one %s\n", primaryWritingMode)
+	if primaryWritingMode := rf.Metadata.OtherTags["primary-writing-mode"]; len(primaryWritingMode) > 0 {
+		if len(rf.Metadata.PrimaryWritingMode) == 0 {
+			rf.Metadata.PrimaryWritingMode = primaryWritingMode
+		} else {
+			rf.Metadata.PrimaryWritingMode = append(rf.Metadata.PrimaryWritingMode, primaryWritingMode...)
 		}
 		delete(rf.Metadata.OtherTags, "primary-writing-mode")
 	}
 
-	// quant.PrettyPrint("NewCreators:\n %s\n", rf.Metadata.Creator)
-	// quant.PrettyPrint("NewContributors:\n %s\n", rf.Metadata.Contributor)
-	// quant.PrettyPrint("NewOtherTags:\n %s\n", rf.Metadata.OtherTags)
+	// debugging purposes
+	if debugEpubMetadata {
+		fmt.Println("Start DebugUnusedEpubMetadata Printing...")
+		// refines
 
-	quant.PrettyPrint("tempData:\n %s\n", tempData)
+		if len(refinesFileAs) > 0 {
+			quant.PrettyPrint("refinesFileAs:\n %s\n", refinesFileAs)
+		}
+		if len(refinesCreatorType) > 0 {
+			quant.PrettyPrint("refinesCreatorType:\n %s\n", refinesCreatorType)
+		}
+		if len(refinesDCTerms) > 0 {
+			quant.PrettyPrint("refinesDCTerms:\n %s\n", refinesDCTerms)
+		}
+		if len(refinesCreatorDisplaySeq) > 0 {
+			quant.PrettyPrint("refinesCreatorDisplaySeq:\n %s\n", refinesCreatorDisplaySeq)
+		}
+		if len(refineTitleType) > 0 {
+			quant.PrettyPrint("refineTitleType:\n %s\n", refineTitleType)
+		}
+		if len(tempData) > 0 {
+			quant.PrettyPrint("tempData:\n %s\n", tempData)
+		}
+		fmt.Println("...End DebugUnusedEpubMetadata Printing")
+	}
+
+	if debugParsedEpubMetadata {
+		fmt.Println("Start DebugParsedEpubMetadata Printing...")
+		if len(rf.Metadata.OtherTags) > 0 {
+			quant.PrettyPrint("OtherTags:\n %s\n", rf.Metadata.OtherTags)
+		}
+		fmt.Println("...End DebugParsedEpubMetadata Printing")
+	}
 
 	return nil
 }
