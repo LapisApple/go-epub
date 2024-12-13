@@ -378,7 +378,6 @@ func (r *Reader) setToc() error {
 	tocAmount := 0
 	for _, rf := range r.Container.Rootfiles {
 		tocId := rf.Spine.Toc
-		// fmt.Printf("tocId: %s\n", tocId)
 		if len(tocId) == 0 {
 			continue
 		}
@@ -397,14 +396,8 @@ func (r *Reader) setToc() error {
 		}
 
 		absolutPath := path.Join(path.Dir(rf.FullPath), tocPath)
-		// fmt.Printf("absolutPath: %s\n", absolutPath)
 		tocFile, ok := r.files[absolutPath]
 		if !ok {
-			// fmt.Printf("tocPath: %s\n", tocPath)
-			// fmt.Printf("tokFile %v\n", tocFile)
-			// for k, _ := range r.files {
-			// 	fmt.Printf("key: %s\n", k)
-			// }
 			return errors.New("epub: toc zip file not in epub zip map")
 		}
 
@@ -418,11 +411,7 @@ func (r *Reader) setToc() error {
 		tocAmount++
 	}
 
-	// can't return error here because some epubs don't have a toc
-	// if tocAmount < 1 {
-	// 	return errors.New("epub: no toc found")
-	// }
-
+	// can't return error on (tocAmount == 0) here because some epubs don't have a toc
 	return nil
 }
 
@@ -444,13 +433,6 @@ func (r *Reader) parseTocFile(tocFile *zip.File) (Toc, error) {
 	if err != nil {
 		return Toc{}, err
 	}
-
-	// fmt.Println(" -------------  current   ---------------")
-
-	// fmt.Printf("navPoints: %v\n", toc)
-	// fmt.Printf("fileContent %s\n", b.String())
-
-	// fmt.Println(" -------------  next   ---------------")
 
 	return toc, nil
 }

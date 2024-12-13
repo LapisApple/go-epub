@@ -20,6 +20,7 @@ type Metadata struct {
 	Subject     string    `xml:"subject"`
 	Description string    `xml:"description"`
 	Event       []struct {
+		// never seen Name used
 		Name string `xml:"event,attr"`
 		Date string `xml:",innerxml"`
 	} `xml:"date"`
