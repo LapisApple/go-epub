@@ -63,7 +63,7 @@ func (ct *containerTest) TestMetadata() {
 	}
 
 	exp = "Lewis Carroll"
-	if meta.Creator != exp {
+	if meta.Creator[0].Name != exp {
 		ct.Errorf(expFormat, exp, meta.Creator)
 	}
 }

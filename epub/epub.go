@@ -66,44 +66,10 @@ type Container struct {
 
 // Package represents an epub content.opf file.
 type Package struct {
-	UniqueIdentifier string `xml:"unique-identifier,attr"`
-	Metadata
+	UniqueIdentifier string   `xml:"unique-identifier,attr"`
+	Metadata         Metadata `xml:"metadata"`
 	Manifest
 	Spine Spine `xml:"spine"`
-}
-
-// for r in &manifest.borrow().children {
-// 	let item = r.borrow();
-// 	if self.cover_id.is_none() {
-// 		if let (Some(id), Some(property)) = (item.get_attr("id"), item.get_attr("properties")) {
-// 			if property == "cover-image" {
-// 				self.cover_id = Some(id);
-// 			}
-// 		}
-// 	}
-// 	let _ = self.insert_resource(&item);
-// }
-
-// Metadata contains publishing information about the epub.
-type Metadata struct {
-	Title       string `xml:"metadata>title"`
-	Language    string `xml:"metadata>language"`
-	Identifier  string `xml:"metadata>idenifier"`
-	Creator     string `xml:"metadata>creator"`
-	Contributor string `xml:"metadata>contributor"`
-	Publisher   string `xml:"metadata>publisher"`
-	Subject     string `xml:"metadata>subject"`
-	Description string `xml:"metadata>description"`
-	Event       []struct {
-		Name string `xml:"event,attr"`
-		Date string `xml:",innerxml"`
-	} `xml:"metadata>date"`
-	Type     string `xml:"metadata>type"`
-	Format   string `xml:"metadata>format"`
-	Source   string `xml:"metadata>source"`
-	Relation string `xml:"metadata>relation"`
-	Coverage string `xml:"metadata>coverage"`
-	Rights   string `xml:"metadata>rights"`
 }
 
 // Manifest lists every file that is part of the epub.
@@ -295,6 +261,20 @@ func (r *Reader) setPackages() error {
 		if err != nil {
 			return err
 		}
+
+		// set cover-image
+		for _, manifestItem := range rf.Package.Manifest.Items {
+			if manifestItem.Properties == "cover-image" {
+				rf.Package.Metadata.CoverId = manifestItem.ID
+				break
+			}
+		}
+
+		// parse custom metadata i.e. <meta> tags in the <metadata> tag
+		err = rf.unmarshallCustomMetadata(b.Bytes())
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -384,7 +364,7 @@ func (m *NavPoint) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		switch se := t.(type) {
 		case xml.StartElement:
 			if !knownChildren[se.Name.Local] {
-				return fmt.Errorf("Error Unknown Child: %s", se.Name.Local)
+				return fmt.Errorf("error unknown child: %s", se.Name.Local)
 			}
 		case xml.EndElement:
 			if se.Name == start.Name {
@@ -398,7 +378,7 @@ func (r *Reader) setToc() error {
 	tocAmount := 0
 	for _, rf := range r.Container.Rootfiles {
 		tocId := rf.Spine.Toc
-		fmt.Printf("tocId: %s\n", tocId)
+		// fmt.Printf("tocId: %s\n", tocId)
 		if len(tocId) == 0 {
 			continue
 		}
@@ -417,14 +397,14 @@ func (r *Reader) setToc() error {
 		}
 
 		absolutPath := path.Join(path.Dir(rf.FullPath), tocPath)
-		fmt.Printf("absolutPath: %s\n", absolutPath)
+		// fmt.Printf("absolutPath: %s\n", absolutPath)
 		tocFile, ok := r.files[absolutPath]
 		if !ok {
-			fmt.Printf("tocPath: %s\n", tocPath)
-			fmt.Printf("tokFile %v\n", tocFile)
-			for k, _ := range r.files {
-				fmt.Printf("key: %s\n", k)
-			}
+			// fmt.Printf("tocPath: %s\n", tocPath)
+			// fmt.Printf("tokFile %v\n", tocFile)
+			// for k, _ := range r.files {
+			// 	fmt.Printf("key: %s\n", k)
+			// }
 			return errors.New("epub: toc zip file not in epub zip map")
 		}
 
@@ -465,12 +445,12 @@ func (r *Reader) parseTocFile(tocFile *zip.File) (Toc, error) {
 		return Toc{}, err
 	}
 
-	fmt.Println(" -------------  current   ---------------")
+	// fmt.Println(" -------------  current   ---------------")
 
-	fmt.Printf("navPoints: %v\n", toc)
-	fmt.Printf("fileContent %s\n", b.String())
+	// fmt.Printf("navPoints: %v\n", toc)
+	// fmt.Printf("fileContent %s\n", b.String())
 
-	fmt.Println(" -------------  next   ---------------")
+	// fmt.Println(" -------------  next   ---------------")
 
 	return toc, nil
 }
