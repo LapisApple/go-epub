@@ -14,7 +14,7 @@ type Metadata struct {
 	Title       Title     `xml:"title"`
 	Language    string    `xml:"language"`
 	Identifier  string    `xml:"idenifier"`
-	Creator     []Creator `xml:"creator"` // author
+	Creator     []Creator `xml:"creator"`
 	Contributor []Creator `xml:"contributor"`
 	Publisher   Refinable `xml:"publisher"`
 	Subject     string    `xml:"subject"`
@@ -30,8 +30,9 @@ type Metadata struct {
 	Coverage string `xml:"coverage"`
 	Rights   string `xml:"rights"`
 	// custom
-	OtherTags       map[string][]string `xml:"-"`
-	CoverManifestId string              `xml:"-"`
+	OtherTags          map[string][]string `xml:"-"`
+	CoverManifestId    string              `xml:"-"`
+	PrimaryWritingMode string              `xml:"-"`
 }
 
 type MetaTags struct {
@@ -55,7 +56,7 @@ type Refinable struct {
 
 type Creator struct {
 	Refinable
-	// only "aut" || "ill" || "bkp"
+	// only "aut" || "ill" || "bkp" || ...
 	CreatorRole string `xml:"role,attr"`
 	DisplaySeq  string `xml:"display-seq,attr"`
 }
@@ -217,9 +218,18 @@ func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
 		}
 	}
 
-	quant.PrettyPrint("NewCreators:\n %s\n", rf.Metadata.Creator)
-	quant.PrettyPrint("NewContributors:\n %s\n", rf.Metadata.Contributor)
-	quant.PrettyPrint("NewOtherTags:\n %s\n", rf.Metadata.OtherTags)
+	// get primary writing mode
+	if primaryWritingMode, ok := rf.Metadata.OtherTags["primary-writing-mode"]; ok && len(primaryWritingMode) > 0 {
+		rf.Metadata.PrimaryWritingMode = primaryWritingMode[0]
+		if len(primaryWritingMode) > 1 {
+			quant.PrintError("primary-writing-mode more than one %s\n", primaryWritingMode)
+		}
+		delete(rf.Metadata.OtherTags, "primary-writing-mode")
+	}
+
+	// quant.PrettyPrint("NewCreators:\n %s\n", rf.Metadata.Creator)
+	// quant.PrettyPrint("NewContributors:\n %s\n", rf.Metadata.Contributor)
+	// quant.PrettyPrint("NewOtherTags:\n %s\n", rf.Metadata.OtherTags)
 
 	quant.PrettyPrint("tempData:\n %s\n", tempData)
 
