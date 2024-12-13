@@ -58,62 +58,95 @@ type Creator struct {
 	FileAs string `xml:"file-as,attr"`
 }
 
-// setContainer unmarshals the epub's container.xml file.
-func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
-	customMetadata := MetaTags{}
+func getMetadataFromFileBytes(data []byte) ([]byte, error) {
 	_, suffix, ok := bytes.Cut(data, []byte("<metadata"))
 	if !ok {
-		return fmt.Errorf("metadata not found 1")
+		return nil, fmt.Errorf("metadata not found 1")
 	}
 	_, suffix, ok = bytes.Cut(suffix, []byte(">"))
 	if !ok {
-		return fmt.Errorf("metadata not found 2")
+		return nil, fmt.Errorf("metadata not found 2")
 	}
 	data, _, ok = bytes.Cut(suffix, []byte("</metadata>"))
 	if !ok {
-		return fmt.Errorf("metadata not found 3")
+		return nil, fmt.Errorf("metadata not found 3")
 	}
 	data = []byte("<metadata>" + string(data) + "</metadata>")
-	// fmt.Printf("data %s\n", data)
-	err := xml.Unmarshal(data, &customMetadata)
+
+	return data, nil
+}
+
+// setContainer unmarshals the epub's container.xml file.
+func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
+	customMetadata := MetaTags{}
+
+	data, err := getMetadataFromFileBytes(data)
 	if err != nil {
-		fmt.Printf("\033[0;31merror %v\n\033[0m", err)
+		return err
+	}
+	err = xml.Unmarshal(data, &customMetadata)
+	if err != nil {
+		quant.PrintError("error %v\n", err)
 		return err
 	}
 	//
 	quant.PrettyPrint("customMetadata:\n %s\n", customMetadata)
-	//
-	// rf.Metadata.OtherTags = make(map[string][]string)
-	// for k, v := range customMetadata.OtherTags {
-	// 	if len(v) == 0 {
-	// 		continue
-	// 	}
-	// 	rf.Metadata.OtherTags[k] = make([]string, 0)
-	// 	for _, v := range v {
-	// 		if v == nil || len(*v) == 0 {
-	// 			continue
-	// 		}
-	// 		rf.Metadata.OtherTags[k] = append(rf.Metadata.OtherTags[k], *v)
-	// 	}
-	// }
-	// if len(rf.Metadata.CoverManifestId) == 0 {
-	// 	rf.Metadata.CoverManifestId = customMetadata.CoverId
-	// }
-	// if title := customMetadata.RefinesMap["title"]; title != nil {
-	// 	rf.Metadata.Title.FileAs = *title
-	// }
-	// if publisher := customMetadata.RefinesMap["publisher"]; publisher != nil {
-	// 	rf.Metadata.Publisher.FileAs = *publisher
-	// }
-	// //
-	// for i := range rf.Metadata.Creator {
-	// 	realCreator := &rf.Metadata.Creator[i]
-	// 	if creatorFileAs := customMetadata.RefinesMap[realCreator.ID]; creatorFileAs != nil {
-	// 		realCreator.FileAs = *creatorFileAs
-	// 	} else {
-	// 		fmt.Printf("\033[0;31mcreator %s not found\n\033[0m", realCreator.ID)
-	// 	}
-	// }
+
+	refineFileAs := make(map[string]string)
+	rf.Metadata.OtherTags = make(map[string][]string)
+
+	// parse []meta
+	for _, meta := range customMetadata.Metatags {
+		if len(meta.Name) > 0 && len(meta.Content) > 0 {
+			if meta.Name == "cover" {
+				if len(rf.Metadata.CoverManifestId) == 0 {
+					rf.Metadata.CoverManifestId = meta.Content
+				} else {
+					quant.PrintError("cover already exists %s\n", meta.Content)
+				}
+			} else {
+				if _, ok := rf.Metadata.OtherTags[meta.Name]; !ok {
+					rf.Metadata.OtherTags[meta.Name] = make([]string, 0)
+				}
+				rf.Metadata.OtherTags[meta.Name] = append(rf.Metadata.OtherTags[meta.Name], meta.Content)
+			}
+		}
+
+		if len(meta.Refines) > 0 {
+			refines := meta.Refines[1:]
+			switch meta.Property {
+			case "file-as":
+				refineFileAs[refines] = meta.InnerXML
+
+			// add more cases here if needed
+			// i.e. "title-type", "role", ...
+			default:
+			}
+		} else if len(meta.Property) > 0 {
+			rf.Metadata.OtherTags[meta.Property] = append(rf.Metadata.OtherTags[meta.Property], meta.InnerXML)
+		}
+	}
+
+	// set title and publisher file-as
+	if title, ok := refineFileAs["title"]; ok {
+		rf.Metadata.Title.FileAs = title
+	}
+	if publisher, ok := refineFileAs["publisher"]; ok {
+		rf.Metadata.Publisher.FileAs = publisher
+	}
+
+	// set creator file-as
+	for i := range rf.Metadata.Creator {
+		c := &rf.Metadata.Creator[i]
+		if creatorFileAs, ok := refineFileAs[c.ID]; ok {
+			c.FileAs = creatorFileAs
+		} else {
+			quant.PrintError("creator %s not found\n", c.ID)
+		}
+	}
+
+	quant.PrettyPrint("NewCreators:\n %s\n", rf.Metadata.Creator)
+	quant.PrettyPrint("NewOtherTags:\n %s\n", rf.Metadata.OtherTags)
 
 	return nil
 }
