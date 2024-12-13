@@ -265,7 +265,7 @@ func (r *Reader) setPackages() error {
 		// set cover-image
 		for _, manifestItem := range rf.Package.Manifest.Items {
 			if manifestItem.Properties == "cover-image" {
-				rf.Package.Metadata.CoverId = manifestItem.ID
+				rf.Package.Metadata.CoverManifestId = manifestItem.ID
 				break
 			}
 		}

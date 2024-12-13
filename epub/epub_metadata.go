@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/lapisapple/epubreader/epub/quant"
 )
 
 // for r in &manifest.borrow().children {
@@ -22,14 +24,20 @@ import (
 
 // Metadata contains publishing information about the epub.
 type Metadata struct {
-	Title       string    `xml:"title"`
+	Title struct {
+		Name   string `xml:",innerxml"`
+		FileAs string `xml:"file-as,attr"`
+	} `xml:"title"`
 	Language    string    `xml:"language"`
 	Identifier  string    `xml:"idenifier"`
 	Creator     []Creator `xml:"creator"` // author
 	Contributor string    `xml:"contributor"`
-	Publisher   string    `xml:"publisher"`
-	Subject     string    `xml:"subject"`
-	Description string    `xml:"description"`
+	Publisher   struct {
+		Name   string `xml:",innerxml"`
+		FileAs string `xml:"file-as,attr"`
+	} `xml:"publisher"`
+	Subject     string `xml:"subject"`
+	Description string `xml:"description"`
 	Event       []struct {
 		Name string `xml:"event,attr"`
 		Date string `xml:",innerxml"`
@@ -44,9 +52,9 @@ type Metadata struct {
 	// InnerXml string `xml:",innerxml"`
 	// custom
 	OtherTags       map[string][]string `xml:"-"`
-	CoverId         string              `xml:"-"`
-	TitleFileAs     string              `xml:"-"`
-	PublisherFileAs string              `xml:"-"`
+	CoverManifestId string              `xml:"-"`
+	// TitleFileAs     string              `xml:"-"`
+	// PublisherFileAs string              `xml:"-"`
 	// CreatorFileAs   string    `xml:"-"`
 }
 
@@ -59,20 +67,32 @@ type CustomMetadataInfo struct {
 	RefinesMap map[string]*string `xml:"-"`
 }
 
+type MetaTags struct {
+	Metatags []MetaTag `xml:"meta"`
+}
+
+type MetaTag struct {
+	Name     string `xml:"name,attr"`
+	Content  string `xml:"content,attr"`
+	Refines  string `xml:"refines,attr"`
+	Property string `xml:"property,attr"`
+	InnerXML string `xml:",innerxml"`
+}
+
 type Creator struct {
 	Name   string `xml:",innerxml"`
 	ID     string `xml:"id,attr"`
-	FileAs string `xml:"-"`
+	FileAs string `xml:"file-as,attr"`
 }
 
 func (m *CustomMetadataInfo) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	m.OtherTags = make(map[string][]*string)
 	m.RefinesMap = make(map[string]*string)
 
-	fmt.Printf("test startElement %v\n", start)
+	// fmt.Printf("test startElement %v\n", start)
 
-	count := 0
-	defer fmt.Printf("\033[0;31mcount: %d\n\033[0m", count)
+	// count := 0
+	// defer fmt.Printf("\033[0;31mcount: %d\n\033[0m", count)
 
 	var currentTextSink *string = nil
 
@@ -84,7 +104,7 @@ func (m *CustomMetadataInfo) UnmarshalXML(d *xml.Decoder, start xml.StartElement
 			return err
 		}
 
-		count++
+		// count++
 
 		// fmt.Printf("test tokenLocalName %s\n", t.)
 		switch tt := t.(type) {
@@ -92,7 +112,7 @@ func (m *CustomMetadataInfo) UnmarshalXML(d *xml.Decoder, start xml.StartElement
 		// TODO: parse the inner structure
 
 		case xml.StartElement:
-			fmt.Println("test > ", tt)
+			// fmt.Println("test > ", tt)
 
 			switch tt.Name.Local {
 			case "meta":
@@ -170,13 +190,13 @@ func (m *CustomMetadataInfo) UnmarshalXML(d *xml.Decoder, start xml.StartElement
 			}
 
 		case xml.EndElement:
-			fmt.Println("test <", tt)
+			// fmt.Println("test <", tt)
 			if tt.Name == start.Name {
 				return nil
 			}
 
 		case xml.CharData:
-			fmt.Printf("test charData %s\n", tt)
+			// fmt.Printf("test charData %s\n", tt)
 			stringData := strings.TrimSpace(string(tt))
 			if len(stringData) == 0 {
 				continue
@@ -239,14 +259,14 @@ func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
 		return fmt.Errorf("metadata not found 3")
 	}
 	data = []byte("<metadata>" + string(data) + "</metadata>")
-	fmt.Printf("data %s\n", data)
+	// fmt.Printf("data %s\n", data)
 	err := xml.Unmarshal(data, &customMetadata)
 	if err != nil {
 		fmt.Printf("\033[0;31merror %v\n\033[0m", err)
 		return err
 	}
 	//
-	fmt.Printf("customMetadata %v\n", customMetadata)
+	quant.PrettyPrint("customMetadata:\n %s\n", customMetadata)
 	//
 	rf.Metadata.OtherTags = make(map[string][]string)
 	for k, v := range customMetadata.OtherTags {
@@ -261,14 +281,14 @@ func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
 			rf.Metadata.OtherTags[k] = append(rf.Metadata.OtherTags[k], *v)
 		}
 	}
-	if len(rf.Metadata.CoverId) == 0 {
-		rf.Metadata.CoverId = customMetadata.CoverId
+	if len(rf.Metadata.CoverManifestId) == 0 {
+		rf.Metadata.CoverManifestId = customMetadata.CoverId
 	}
 	if title := customMetadata.RefinesMap["title"]; title != nil {
-		rf.Metadata.TitleFileAs = *title
+		rf.Metadata.Title.FileAs = *title
 	}
 	if publisher := customMetadata.RefinesMap["publisher"]; publisher != nil {
-		rf.Metadata.PublisherFileAs = *publisher
+		rf.Metadata.Publisher.FileAs = *publisher
 	}
 	//
 	for i := range rf.Metadata.Creator {
