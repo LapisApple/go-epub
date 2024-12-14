@@ -32,6 +32,9 @@ var (
 	// ErrBadManifest occurs when a manifest in content.opf references an item
 	// that does not exist in the zip.
 	ErrBadManifest = errors.New("epub: manifest references non-existent item")
+
+	// ErrMissingCoverId occurs when the epub does not have a cover image.
+	ErrMissingCoverId = errors.New("epub: missing cover id in metadata")
 )
 
 // Reader represents a readable epub file.
@@ -350,4 +353,34 @@ func (item *ManifestItem) Open() (r io.ReadCloser, err error) {
 // Close closes the epub file, rendering it unusable for I/O.
 func (rc *ReadCloser) Close() {
 	rc.f.Close()
+}
+
+func (r Reader) GetCover() (image *zip.File, mediaType string, err error) {
+	if len(r.Container.Rootfiles) == 0 {
+		return nil, "", ErrNoRootfile
+	}
+
+	hasCoverId := false
+	for _, rf := range r.Container.Rootfiles {
+
+		coverId := rf.Metadata.CoverManifestId
+
+		if len(coverId) == 0 {
+			continue
+		}
+		hasCoverId = true
+
+		for _, item := range rf.Manifest.Items {
+			if item.ID == coverId {
+				return item.f, item.MediaType, nil
+			}
+
+		}
+	}
+
+	if hasCoverId {
+		return nil, "", ErrBadManifest
+	} else {
+		return nil, "", ErrMissingCoverId
+	}
 }
