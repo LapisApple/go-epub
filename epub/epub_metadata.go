@@ -13,7 +13,7 @@ import (
 type Metadata struct {
 	Title       Title     `xml:"title"`
 	Language    string    `xml:"language"`
-	Identifier  string    `xml:"idenifier"`
+	Identifier  []string  `xml:"identifier"`
 	Creator     []Creator `xml:"creator"`
 	Contributor []Creator `xml:"contributor"`
 	Publisher   Refinable `xml:"publisher"`
@@ -75,6 +75,18 @@ func (c *Creator) setNullFields(refineFileAs, refinesCreatorType, refinesCreator
 func setNullField(data map[string]string, key string, res *string) {
 	if newValue, ok := data[key]; ok && len(*res) == 0 {
 		*res = newValue
+		if debugEpubMetadata {
+			delete(data, key)
+		}
+	}
+}
+
+func appendNonNullField(data map[string]string, key string, res *[]string) {
+	if newValue, ok := data[key]; ok {
+		if *res == nil {
+			*res = make([]string, 0)
+		}
+		*res = append(*res, newValue)
 		if debugEpubMetadata {
 			delete(data, key)
 		}
@@ -188,7 +200,9 @@ func (rf *Rootfile) unmarshallCustomMetadata(data []byte) error {
 	// try setting dcterms
 	setNullField(refinesDCTerms, "title", &rf.Metadata.Title.Name)
 	setNullField(refinesDCTerms, "language", &rf.Metadata.Language)
-	setNullField(refinesDCTerms, "identifier", &rf.Metadata.Identifier)
+	// set id docterms
+	appendNonNullField(refinesDCTerms, "identifier", &rf.Metadata.Identifier)
+	appendNonNullField(refinesDCTerms, rf.UniqueIdentifier, &rf.Metadata.Identifier)
 	// hard to implement for creator and pretty useless because ID would be known and points somewhere,
 	// which likely means that the creator name is already known
 	// setNullField(refinesDCTerms, "creator", &rf.Metadata.Creator[?].Name)
