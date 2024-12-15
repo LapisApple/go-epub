@@ -1,3 +1,3 @@
-module github.com/lapisapple/epubreader
+module github.com/lapisapple/go-epub
 
 go 1.23.2
