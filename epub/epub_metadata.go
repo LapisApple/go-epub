@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/lapisapple/go-epub/epub/quant"
+	"github.com/LapisApple/go-epub/epub/quant"
 )
 
 // Metadata contains publishing information about the epub.
