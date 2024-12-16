@@ -118,6 +118,10 @@ func OpenReader(name string) (*ReadCloser, error) {
 		return nil, err
 	}
 
+	return NewReader(f)
+}
+
+func NewReader(f *os.File) (*ReadCloser, error) {
 	rc := new(ReadCloser)
 	rc.f = f
 
