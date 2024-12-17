@@ -46,7 +46,8 @@ type Reader struct {
 // ReadCloser represents a readable epub file that can be closed.
 type ReadCloser struct {
 	Reader
-	F *os.File
+	F      *os.File
+	F_SIZE int64
 }
 
 // Rootfile contains the location of a content.opf package file.
@@ -131,7 +132,10 @@ func NewReader(f *os.File) (*ReadCloser, error) {
 		return nil, err
 	}
 
-	z, err := zip.NewReader(f, fi.Size())
+	fsize := fi.Size()
+	rc.F_SIZE = fsize
+
+	z, err := zip.NewReader(f, fsize)
 	if err != nil {
 		return nil, err
 	}
