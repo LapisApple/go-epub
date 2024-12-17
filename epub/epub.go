@@ -46,7 +46,7 @@ type Reader struct {
 // ReadCloser represents a readable epub file that can be closed.
 type ReadCloser struct {
 	Reader
-	f *os.File
+	F *os.File
 }
 
 // Rootfile contains the location of a content.opf package file.
@@ -123,7 +123,7 @@ func OpenReader(name string) (*ReadCloser, error) {
 
 func NewReader(f *os.File) (*ReadCloser, error) {
 	rc := new(ReadCloser)
-	rc.f = f
+	rc.F = f
 
 	fi, err := f.Stat()
 	if err != nil {
@@ -356,7 +356,7 @@ func (item *ManifestItem) Open() (r io.ReadCloser, err error) {
 
 // Close closes the epub file, rendering it unusable for I/O.
 func (rc *ReadCloser) Close() {
-	rc.f.Close()
+	rc.F.Close()
 }
 
 func (r Reader) GetCover() (image *zip.File, mediaType string, err error) {
