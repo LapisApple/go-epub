@@ -46,7 +46,7 @@ type Reader struct {
 // ReadCloser represents a readable epub file that can be closed.
 type ReadCloser struct {
 	Reader
-	F      *os.File
+	f      *os.File
 	F_SIZE int64
 }
 
@@ -124,7 +124,7 @@ func OpenReader(name string) (*ReadCloser, error) {
 
 func NewReader(f *os.File) (*ReadCloser, error) {
 	rc := new(ReadCloser)
-	rc.F = f
+	rc.f = f
 
 	fi, err := f.Stat()
 	if err != nil {
@@ -360,7 +360,7 @@ func (item *ManifestItem) Open() (r io.ReadCloser, err error) {
 
 // Close closes the epub file, rendering it unusable for I/O.
 func (rc *ReadCloser) Close() {
-	rc.F.Close()
+	rc.f.Close()
 }
 
 func (r Reader) GetCover() (image *zip.File, mediaType string, err error) {
