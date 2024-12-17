@@ -19,22 +19,23 @@ type Metadata struct {
 	Publisher   Refinable `xml:"publisher"`
 	Subject     string    `xml:"subject"`
 	Description string    `xml:"description"`
-	Event       []struct {
-		// never seen Name used
-		Name string `xml:"event,attr"`
-		Date string `xml:",innerxml"`
-	} `xml:"date"`
-	Type     string `xml:"type"`
-	Format   string `xml:"format"`
-	Source   string `xml:"source"`
-	Relation string `xml:"relation"`
-	Coverage string `xml:"coverage"`
-	Rights   string `xml:"rights"`
+	Event       []Date    `xml:"date"`
+	Type        string    `xml:"type"`
+	Format      string    `xml:"format"`
+	Source      string    `xml:"source"`
+	Relation    string    `xml:"relation"`
+	Coverage    string    `xml:"coverage"`
+	Rights      string    `xml:"rights"`
 	// custom
 	OtherTags       map[string][]string `xml:"-"`
 	CoverManifestId string              `xml:"-"`
 	// might contain duplicates
 	PrimaryWritingMode []string `xml:"-"`
+}
+
+type Date struct {
+	Name string `xml:"event,attr"`
+	Date string `xml:",innerxml"`
 }
 
 type MetaTags struct {
