@@ -286,7 +286,6 @@ type NavPoint struct {
 }
 
 func (r *Reader) setToc() error {
-	tocAmount := 0
 	for _, rf := range r.Container.Rootfiles {
 		tocId := rf.Spine.Toc
 		if len(tocId) == 0 {
@@ -312,21 +311,20 @@ func (r *Reader) setToc() error {
 			return errors.New("epub: toc zip file not in epub zip map")
 		}
 
-		navPoints, err := r.parseTocFile(tocFile)
+		navPoints, err := parseTocFile(tocFile)
 		if err != nil {
 			return err
 		}
 
 		// set stuff
 		rf.Toc = navPoints
-		tocAmount++
 	}
 
 	// can't return error on (tocAmount == 0) here because some epubs don't have a toc
 	return nil
 }
 
-func (r *Reader) parseTocFile(tocFile *zip.File) (Toc, error) {
+func parseTocFile(tocFile *zip.File) (Toc, error) {
 	toc := Toc{}
 
 	f, err := tocFile.Open()
