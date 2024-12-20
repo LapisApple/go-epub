@@ -137,10 +137,12 @@ func NewReader(f *os.File) (*ReadCloser, error) {
 
 	z, err := zip.NewReader(f, fsize)
 	if err != nil {
+		f.Close()
 		return nil, err
 	}
 
 	if err = rc.init(z); err != nil {
+		f.Close()
 		return nil, err
 	}
 
