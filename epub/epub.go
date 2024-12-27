@@ -13,6 +13,12 @@ import (
 const containerPath = "META-INF/container.xml"
 
 var (
+	// ErrNoContainerfile occurs when there is no container file found
+	ErrNoContainerfile = errors.New("epub: no containerfile found in provided file")
+
+	// ErrBadContainerfile occurs when there is a malformed container file found
+	ErrBadContainerfile = errors.New("epub: bad containerfile found in provided file")
+
 	// ErrNoRootfile occurs when there are no rootfile entries found in
 	// container.xml.
 	ErrNoRootfile = errors.New("epub: no rootfile found in container")
@@ -179,7 +185,14 @@ func (r *Reader) init(z *zip.Reader) error {
 
 // setContainer unmarshals the epub's container.xml file.
 func (r *Reader) setContainer() error {
-	f, err := r.files[containerPath].Open()
+	containerZipFile, ok := r.files[containerPath]
+	if !ok {
+		return ErrNoContainerfile
+	}
+	if containerZipFile == nil {
+		return ErrBadContainerfile
+	}
+	f, err := containerZipFile.Open()
 	if err != nil {
 		return err
 	}
@@ -360,7 +373,9 @@ func (item *ManifestItem) Open() (r io.ReadCloser, err error) {
 
 // Close closes the epub file, rendering it unusable for I/O.
 func (rc *ReadCloser) Close() {
-	rc.f.Close()
+	if rc.f != nil {
+		rc.f.Close()
+	}
 }
 
 func (r Reader) GetCover() (image *zip.File, mediaType string, err error) {
