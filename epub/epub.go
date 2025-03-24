@@ -93,7 +93,7 @@ type ManifestItem struct {
 	MediaType string `xml:"media-type,attr"`
 	// properties are skipped by the rust crate
 	Properties string `xml:"properties,attr"`
-	f          *zip.File
+	F          *zip.File
 }
 
 // Spine defines the reading order of the epub documents.
@@ -269,7 +269,7 @@ func (r *Reader) setItems() error {
 			itemMap[item.ID] = item
 
 			abs := path.Join(path.Dir(rf.FullPath), item.HREF)
-			item.f = r.files[abs]
+			item.F = r.files[abs]
 		}
 
 		for i := range rf.Spine.Itemrefs {
@@ -364,11 +364,11 @@ func parseTocFile(tocFile *zip.File) (Toc, error) {
 // Open returns a ReadCloser that provides access to the Items's contents.
 // Multiple items may be read concurrently.
 func (item *ManifestItem) Open() (r io.ReadCloser, err error) {
-	if item.f == nil {
+	if item.F == nil {
 		return nil, ErrBadManifest
 	}
 
-	return item.f.Open()
+	return item.F.Open()
 }
 
 // Close closes the epub file, rendering it unusable for I/O.
@@ -395,7 +395,7 @@ func (r Reader) GetCover() (image *zip.File, mediaType string, err error) {
 
 		for _, item := range rf.Manifest.Items {
 			if item.ID == coverId {
-				return item.f, item.MediaType, nil
+				return item.F, item.MediaType, nil
 			}
 
 		}
