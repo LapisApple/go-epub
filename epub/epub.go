@@ -4,43 +4,11 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/xml"
-	"errors"
 	"io"
 	"os"
 	"path"
-)
 
-const containerPath = "META-INF/container.xml"
-
-var (
-	// ErrNoContainerfile occurs when there is no container file found
-	ErrNoContainerfile = errors.New("epub: no containerfile found in provided file")
-
-	// ErrBadContainerfile occurs when there is a malformed container file found
-	ErrBadContainerfile = errors.New("epub: bad containerfile found in provided file")
-
-	// ErrNoRootfile occurs when there are no rootfile entries found in
-	// container.xml.
-	ErrNoRootfile = errors.New("epub: no rootfile found in container")
-
-	// ErrBadRootfile occurs when container.xml references a rootfile that does
-	// not exist in the zip.
-	ErrBadRootfile = errors.New("epub: container references non-existent rootfile")
-
-	// ErrNoItemref occurrs when a content.opf contains a spine without any
-	// itemref entries.
-	ErrNoItemref = errors.New("epub: no itemrefs found in spine")
-
-	// ErrBadItemref occurs when an itemref entry in content.opf references an
-	// item that does not exist in the manifest.
-	ErrBadItemref = errors.New("epub: itemref references non-existent item")
-
-	// ErrBadManifest occurs when a manifest in content.opf references an item
-	// that does not exist in the zip.
-	ErrBadManifest = errors.New("epub: manifest references non-existent item")
-
-	// ErrMissingCoverId occurs when the epub does not have a cover image.
-	ErrMissingCoverId = errors.New("epub: missing cover id in metadata")
+	"golang.org/x/net/html/charset"
 )
 
 // Reader represents a readable epub file.
@@ -52,85 +20,16 @@ type Reader struct {
 // ReadCloser represents a readable epub file that can be closed.
 type ReadCloser struct {
 	Reader
-	f      *os.File
 	F_SIZE int64
+	f      *os.File
 }
 
-// Rootfile contains the location of a content.opf package file.
-type Rootfile struct {
-	FullPath string `xml:"full-path,attr"`
-	Package
-	Toc Toc
-}
-
-type Toc struct {
-	DocTitle  string     `xml:"docTitle>text"`
-	NavPoints []NavPoint `xml:"navMap>navPoint"`
-}
-
-// Container serves as a directory of Rootfiles.
-type Container struct {
-	Rootfiles []*Rootfile `xml:"rootfiles>rootfile"`
-}
-
-// Package represents an epub content.opf file.
-type Package struct {
-	UniqueIdentifier string   `xml:"unique-identifier,attr"`
-	Metadata         Metadata `xml:"metadata"`
-	Manifest
-	Spine Spine `xml:"spine"`
-}
-
-// Manifest lists every file that is part of the epub.
-type Manifest struct {
-	Items []ManifestItem `xml:"manifest>item"`
-}
-
-// ManifestItem represents a file stored in the epub.
-type ManifestItem struct {
-	ID        string `xml:"id,attr"`
-	HREF      string `xml:"href,attr"`
-	MediaType string `xml:"media-type,attr"`
-	// properties are skipped by the rust crate
-	Properties string `xml:"properties,attr"`
-	F          *zip.File
-}
-
-// Spine defines the reading order of the epub documents.
-type Spine struct {
-	Itemrefs []SpineItem `xml:"itemref"`
-	Toc      string      `xml:"toc,attr"`
-	PPD      string      `xml:"page-progression-direction,attr"`
-}
-
-// SpineItem points to an Item.
-type SpineItem struct {
-	SpineItemData
-	*ManifestItem `xml:"-" json:"-"`
-}
-
-type SpineItemData struct {
-	IDREF           string `xml:"idref,attr" json:",omitempty"`
-	Linear          string `xml:"linear,attr" json:",omitempty"`
-	SpineProperties string `xml:"properties,attr" json:",omitempty"`
-	// have never seen this irl, but the rust crate has it so i guess it's real
-	SpineID string `xml:"id,attr" json:",omitempty"`
-}
-
-// OpenReader will open the epub file specified by name and return a
-// ReadCloser.
+// OpenReader opens the epub file at name and returns a ReadCloser.
 func OpenReader(name string) (*ReadCloser, error) {
 	f, err := os.Open(name)
 	if err != nil {
 		return nil, err
 	}
-
-	return NewReader(f)
-}
-
-func NewReader(f *os.File) (*ReadCloser, error) {
-	rc := new(ReadCloser)
-	rc.f = f
 
 	fi, err := f.Stat()
 	if err != nil {
@@ -138,10 +37,8 @@ func NewReader(f *os.File) (*ReadCloser, error) {
 		return nil, err
 	}
 
-	fsize := fi.Size()
-	rc.F_SIZE = fsize
-
-	z, err := zip.NewReader(f, fsize)
+	rc := &ReadCloser{f: f, F_SIZE: fi.Size()}
+	z, err := zip.NewReader(f, fi.Size())
 	if err != nil {
 		f.Close()
 		return nil, err
@@ -155,111 +52,115 @@ func NewReader(f *os.File) (*ReadCloser, error) {
 	return rc, nil
 }
 
+// NewReader reads an epub from ra. The caller retains ownership of ra.
+func NewReader(ra io.ReaderAt, size int64) (*Reader, error) {
+	z, err := zip.NewReader(ra, size)
+	if err != nil {
+		return nil, err
+	}
+
+	r := new(Reader)
+	if err = r.init(z); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// Close closes the epub file.
+func (rc *ReadCloser) Close() {
+	if rc.f != nil {
+		rc.f.Close()
+	}
+}
+
 func (r *Reader) init(z *zip.Reader) error {
-	// Create a file lookup table
 	r.files = make(map[string]*zip.File)
 	for _, f := range z.File {
 		r.files[f.Name] = f
 	}
 
-	err := r.setContainer()
-	if err != nil {
+	if err := r.setContainer(); err != nil {
 		return err
 	}
-	err = r.setPackages()
-	if err != nil {
+	if err := r.setPackages(); err != nil {
 		return err
 	}
-	err = r.setItems()
-	if err != nil {
+	if err := r.setItems(); err != nil {
 		return err
 	}
-
-	err = r.setToc()
-	if err != nil {
+	if err := r.setNCX(); err != nil {
 		return err
 	}
-
-	return nil
+	return r.setTOC()
 }
 
-// setContainer unmarshals the epub's container.xml file.
 func (r *Reader) setContainer() error {
 	containerZipFile, ok := r.files[containerPath]
 	if !ok {
 		return ErrNoContainerfile
 	}
-	if containerZipFile == nil {
-		return ErrBadContainerfile
-	}
+
+	/*
+		if containerZipFile == nil {
+			return ErrBadContainerfile
+		}
+	*/
 	f, err := containerZipFile.Open()
 	if err != nil {
-		return err
+		return ErrBadContainerfile
 	}
+	defer f.Close()
 
-	var b bytes.Buffer
-	_, err = io.Copy(&b, f)
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return err
 	}
 
-	err = xml.Unmarshal(b.Bytes(), &r.Container)
-	// todo: read more attributes out of container.xml
-	if err != nil {
+	if err := xmlDecodeBytes(data, &r.Container); err != nil {
 		return err
 	}
 
 	if len(r.Container.Rootfiles) < 1 {
 		return ErrNoRootfile
 	}
-
 	return nil
 }
 
-// setPackages unmarshal's each of the epub's content.opf files.
 func (r *Reader) setPackages() error {
 	for _, rf := range r.Container.Rootfiles {
-		if r.files[rf.FullPath] == nil {
+		zf := r.files[rf.FullPath]
+		if zf == nil {
 			return ErrBadRootfile
 		}
 
-		f, err := r.files[rf.FullPath].Open()
+		f, err := zf.Open()
 		if err != nil {
 			return err
 		}
 
-		var b bytes.Buffer
-		_, err = io.Copy(&b, f)
+		data, err := io.ReadAll(f)
+		f.Close()
 		if err != nil {
 			return err
 		}
 
-		err = xml.Unmarshal(b.Bytes(), &rf.Package)
-		// todo: read more attributes out of content.opf
-		if err != nil {
+		if err := xmlDecodeBytes(data, &rf.Package); err != nil {
 			return err
 		}
 
-		// set cover-image
-		for _, manifestItem := range rf.Package.Manifest.Items {
+		// Cover from manifest properties (EPUB 3.0).
+		for _, manifestItem := range rf.Manifest.Items {
 			if manifestItem.Properties == "cover-image" {
-				rf.Package.Metadata.CoverManifestId = manifestItem.ID
+				rf.Metadata.CoverManifestId = manifestItem.ID
 				break
 			}
 		}
 
-		// parse custom metadata i.e. <meta> tags in the <metadata> tag
-		err = rf.unmarshallCustomMetadata(b.Bytes())
-		if err != nil {
-			return err
-		}
+		processRefinements(&rf.Metadata)
 	}
-
 	return nil
 }
 
-// setItems associates Itemrefs with their respective Item and Items with
-// their zip.File.
 func (r *Reader) setItems() error {
 	itemrefCount := 0
 	for _, rf := range r.Container.Rootfiles {
@@ -267,7 +168,6 @@ func (r *Reader) setItems() error {
 		for i := range rf.Manifest.Items {
 			item := &rf.Manifest.Items[i]
 			itemMap[item.ID] = item
-
 			abs := path.Join(path.Dir(rf.FullPath), item.HREF)
 			item.F = r.files[abs]
 		}
@@ -285,125 +185,128 @@ func (r *Reader) setItems() error {
 	if itemrefCount < 1 {
 		return ErrNoItemref
 	}
-
 	return nil
 }
 
-type NavPoint struct {
-	ID        string `xml:"id,attr"`
-	PlayOrder string `xml:"playOrder,attr"`
-	Label     string `xml:"navLabel>text"`
-	Content   []struct {
-		Path string `xml:"src,attr"`
-	} `xml:"content"`
-	// haven't seen this irl, but the rust crate has it so i guess it's real
-	Children []NavPoint `xml:"navPoint"`
+// xmlDecodeBytes strips a UTF-8 BOM and decodes XML with charset support.
+func xmlDecodeBytes(data []byte, v any) error {
+	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
+	data = escapeInvalidAmpersands(data)
+	data = escapeNonAsciiTags(data)
+	dec := xml.NewDecoder(bytes.NewReader(data))
+	dec.CharsetReader = charset.NewReaderLabel
+	return dec.Decode(v)
 }
 
-func (r *Reader) setToc() error {
-	for _, rf := range r.Container.Rootfiles {
-		tocId := rf.Spine.Toc
-		if len(tocId) == 0 {
+// escapeNonAsciiTags replaces '<' that start a tag whose name begins with a
+// non-ASCII byte (e.g. CJK characters) with '&lt;'. Such sequences are never
+// valid epub XML element names but appear as unescaped text in some malformed
+// epubs (e.g. "<物語>" in an NCX docTitle).
+func escapeNonAsciiTags(data []byte) []byte {
+	if !bytes.Contains(data, []byte("<")) {
+		return data
+	}
+	var buf bytes.Buffer
+	buf.Grow(len(data))
+	for i := 0; i < len(data); i++ {
+		if data[i] != '<' {
+			buf.WriteByte(data[i])
 			continue
 		}
-
-		tocPath := ""
-		for _, item := range rf.Manifest.Items {
-			if item.ID != tocId {
-				continue
-			}
-			tocPath = item.HREF
-			break
-		}
-
-		if len(tocPath) == 0 {
-			return errors.New("epub: toc item not found")
-		}
-
-		absolutPath := path.Join(path.Dir(rf.FullPath), tocPath)
-		tocFile, ok := r.files[absolutPath]
-		if !ok {
-			return errors.New("epub: toc zip file not in epub zip map")
-		}
-
-		navPoints, err := parseTocFile(tocFile)
-		if err != nil {
-			return err
-		}
-
-		// set stuff
-		rf.Toc = navPoints
-	}
-
-	// can't return error on (tocAmount == 0) here because some epubs don't have a toc
-	return nil
-}
-
-func parseTocFile(tocFile *zip.File) (Toc, error) {
-	toc := Toc{}
-
-	f, err := tocFile.Open()
-	if err != nil {
-		return Toc{}, err
-	}
-
-	var b bytes.Buffer
-	_, err = io.Copy(&b, f)
-	if err != nil {
-		return Toc{}, err
-	}
-
-	err = xml.Unmarshal(b.Bytes(), &toc)
-	if err != nil {
-		return Toc{}, err
-	}
-
-	return toc, nil
-}
-
-// Open returns a ReadCloser that provides access to the Items's contents.
-// Multiple items may be read concurrently.
-func (item *ManifestItem) Open() (r io.ReadCloser, err error) {
-	if item.F == nil {
-		return nil, ErrBadManifest
-	}
-
-	return item.F.Open()
-}
-
-// Close closes the epub file, rendering it unusable for I/O.
-func (rc *ReadCloser) Close() {
-	if rc.f != nil {
-		rc.f.Close()
-	}
-}
-
-func (r Reader) GetCover() (image *zip.File, mediaType string, err error) {
-	if len(r.Container.Rootfiles) == 0 {
-		return nil, "", ErrNoRootfile
-	}
-
-	hasCoverId := false
-	for _, rf := range r.Container.Rootfiles {
-
-		coverId := rf.Metadata.CoverManifestId
-
-		if len(coverId) == 0 {
+		// Check for </X where X is non-ASCII.
+		if i+2 < len(data) && data[i+1] == '/' && data[i+2] >= 0x80 {
+			buf.WriteString("&lt;")
 			continue
 		}
-		hasCoverId = true
+		// Check for <X where X is non-ASCII.
+		if i+1 < len(data) && data[i+1] >= 0x80 {
+			buf.WriteString("&lt;")
+			continue
+		}
+		buf.WriteByte('<')
+	}
+	return buf.Bytes()
+}
 
-		for _, item := range rf.Manifest.Items {
-			if item.ID == coverId {
-				return item.F, item.MediaType, nil
-			}
-
+// escapeInvalidAmpersands replaces bare & that aren't part of a valid XML
+// entity or character reference with &amp;. Handles malformed epub XML.
+func escapeInvalidAmpersands(data []byte) []byte {
+	if !bytes.Contains(data, []byte("&")) {
+		return data
+	}
+	var buf bytes.Buffer
+	buf.Grow(len(data))
+	i := 0
+	for i < len(data) {
+		if data[i] != '&' {
+			buf.WriteByte(data[i])
+			i++
+			continue
+		}
+		if end := validEntityEnd(data, i); end > i {
+			buf.Write(data[i:end])
+			i = end
+		} else {
+			buf.WriteString("&amp;")
+			i++
 		}
 	}
+	return buf.Bytes()
+}
 
-	if hasCoverId {
-		return nil, "", ErrBadManifest
-	} else {
-		return nil, "", ErrMissingCoverId
+// validEntityEnd returns the index past the closing ';' of a valid XML entity
+// or character reference starting at data[i] (which must be '&'), or 0.
+func validEntityEnd(data []byte, i int) int {
+	j := i + 1
+	if j >= len(data) {
+		return 0
 	}
+	if data[j] == '#' {
+		j++
+		if j >= len(data) {
+			return 0
+		}
+		if data[j] == 'x' || data[j] == 'X' {
+			j++
+			start := j
+			for j < len(data) && isHexDigit(data[j]) {
+				j++
+			}
+			if j == start || j >= len(data) || data[j] != ';' {
+				return 0
+			}
+			return j + 1
+		}
+		start := j
+		for j < len(data) && data[j] >= '0' && data[j] <= '9' {
+			j++
+		}
+		if j == start || j >= len(data) || data[j] != ';' {
+			return 0
+		}
+		return j + 1
+	}
+	if !isNameStartByte(data[j]) {
+		return 0
+	}
+	j++
+	for j < len(data) && isNameByte(data[j]) {
+		j++
+	}
+	if j >= len(data) || data[j] != ';' {
+		return 0
+	}
+	return j + 1
+}
+
+func isNameStartByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == ':'
+}
+
+func isNameByte(c byte) bool {
+	return isNameStartByte(c) || (c >= '0' && c <= '9') || c == '-' || c == '.'
+}
+
+func isHexDigit(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 }
