@@ -94,9 +94,18 @@ func (rc *ReadCloser) Close() error {
 }
 
 // readAll reads from r, honouring MaxFileSize when set.
+// Returns ErrFileTooLarge if the data exceeds the limit (not a silent truncation).
 func (reader *Reader) readAll(r io.Reader) ([]byte, error) {
 	if reader.opts.MaxFileSize > 0 {
-		return io.ReadAll(io.LimitReader(r, reader.opts.MaxFileSize))
+		// Read one byte beyond the limit to detect oversized files.
+		data, err := io.ReadAll(io.LimitReader(r, reader.opts.MaxFileSize+1))
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(data)) > reader.opts.MaxFileSize {
+			return nil, ErrFileTooLarge
+		}
+		return data, nil
 	}
 	return io.ReadAll(r)
 }
@@ -188,7 +197,7 @@ func (r *Reader) setPackages() error {
 
 		// Cover from manifest properties (EPUB 3.0).
 		for _, manifestItem := range rf.Manifest.Items {
-			if manifestItem.Properties == "cover-image" {
+			if hasProperty(manifestItem.Properties, "cover-image") {
 				rf.Metadata.CoverManifestId = manifestItem.ID
 				break
 			}
@@ -289,14 +298,30 @@ func escapeNonAsciiTags(data []byte) []byte {
 
 // escapeInvalidAmpersands replaces bare & that aren't part of a valid XML
 // entity or character reference with &amp;. Handles malformed epub XML.
+// CDATA sections are passed through unchanged (same as escapeNonAsciiTags).
 func escapeInvalidAmpersands(data []byte) []byte {
 	if !bytes.Contains(data, []byte("&")) {
 		return data
 	}
 	var buf bytes.Buffer
 	buf.Grow(len(data))
+	cdataStart := []byte("<![CDATA[")
+	cdataEnd := []byte("]]>")
 	i := 0
 	for i < len(data) {
+		// Pass CDATA sections through unchanged.
+		if bytes.HasPrefix(data[i:], cdataStart) {
+			end := bytes.Index(data[i+len(cdataStart):], cdataEnd)
+			if end >= 0 {
+				end += i + len(cdataStart) + len(cdataEnd)
+				buf.Write(data[i:end])
+				i = end
+				continue
+			}
+			// Unclosed CDATA — emit the rest as-is.
+			buf.Write(data[i:])
+			break
+		}
 		if data[i] != '&' {
 			buf.WriteByte(data[i])
 			i++

@@ -11,4 +11,6 @@ var (
 	ErrBadItemref       = errors.New("epub: itemref references non-existent item")
 	ErrBadManifest      = errors.New("epub: manifest references non-existent item")
 	ErrMissingCoverId   = errors.New("epub: missing cover id in metadata")
+	ErrFileTooLarge     = errors.New("epub: file exceeds MaxFileSize limit")
+	ErrDuplicateID      = errors.New("epub: duplicate manifest item id")
 )

@@ -115,13 +115,8 @@ type GuideReference struct {
 
 // resolveSVGCover finds the raster image embedded in an SVG cover item.
 // Returns (nil, nil) when no image element is found (not an error).
-func resolveSVGCover(svgItem *ManifestItem, rf *Rootfile) (*ManifestItem, error) {
-	rc, err := svgItem.Open()
-	if err != nil {
-		return nil, err
-	}
-	data, err := io.ReadAll(rc)
-	rc.Close()
+func resolveSVGCover(r *Reader, svgItem *ManifestItem, rf *Rootfile) (*ManifestItem, error) {
+	data, err := r.readItem(svgItem)
 	if err != nil {
 		return nil, err
 	}
@@ -153,6 +148,9 @@ func resolveSVGCover(svgItem *ManifestItem, rf *Rootfile) (*ManifestItem, error)
 	}
 
 	// Both SVG HREF and manifest HREFs are relative to the OPF dir.
+	if i := strings.IndexByte(imgHref, '#'); i >= 0 {
+		imgHref = imgHref[:i]
+	}
 	imgHref, _ = url.PathUnescape(imgHref)
 	resolved := path.Join(path.Dir(svgItem.HREF), imgHref)
 	for i := range rf.Manifest.Items {
@@ -166,13 +164,8 @@ func resolveSVGCover(svgItem *ManifestItem, rf *Rootfile) (*ManifestItem, error)
 
 // resolveXHTMLCover finds the first image referenced inside an XHTML/HTML cover document.
 // Returns (nil, nil) when no image element is found.
-func resolveXHTMLCover(xhtmlItem *ManifestItem, rf *Rootfile) (*ManifestItem, error) {
-	rc, err := xhtmlItem.Open()
-	if err != nil {
-		return nil, err
-	}
-	data, err := io.ReadAll(rc)
-	rc.Close()
+func resolveXHTMLCover(r *Reader, xhtmlItem *ManifestItem, rf *Rootfile) (*ManifestItem, error) {
+	data, err := r.readItem(xhtmlItem)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +236,7 @@ func (r *Reader) GetCover() (*ManifestItem, error) {
 			if item.ID != coverId {
 				continue
 			}
-			return unwrapCoverItem(item, rf)
+			return unwrapCoverItem(r, item, rf)
 		}
 	}
 
@@ -269,7 +262,7 @@ func (r *Reader) GetCover() (*ManifestItem, error) {
 				item := &rf.Manifest.Items[i]
 				itemAbs := path.Join(opfDir, item.HREF)
 				if itemAbs == resolved {
-					return unwrapCoverItem(item, rf)
+					return unwrapCoverItem(r, item, rf)
 				}
 			}
 		}
@@ -279,10 +272,10 @@ func (r *Reader) GetCover() (*ManifestItem, error) {
 }
 
 // unwrapCoverItem resolves SVG and XHTML wrappers to find the underlying image.
-func unwrapCoverItem(item *ManifestItem, rf *Rootfile) (*ManifestItem, error) {
+func unwrapCoverItem(r *Reader, item *ManifestItem, rf *Rootfile) (*ManifestItem, error) {
 	switch item.MediaType {
 	case MediaTypeSVG:
-		resolved, err := resolveSVGCover(item, rf)
+		resolved, err := resolveSVGCover(r, item, rf)
 		if err != nil {
 			return nil, err
 		}
@@ -292,7 +285,7 @@ func unwrapCoverItem(item *ManifestItem, rf *Rootfile) (*ManifestItem, error) {
 		// SVG has no embedded image — return the SVG itself.
 		return item, nil
 	case MediaTypeXHTML, MediaTypeHTML:
-		resolved, err := resolveXHTMLCover(item, rf)
+		resolved, err := resolveXHTMLCover(r, item, rf)
 		if err != nil {
 			return nil, err
 		}

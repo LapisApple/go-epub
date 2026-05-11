@@ -127,8 +127,13 @@ func (item NavItem) lookupNavItem(href string) string {
 
 // hasNavProperty reports whether "nav" appears in a space-separated properties value.
 func hasNavProperty(properties string) bool {
+	return hasProperty(properties, "nav")
+}
+
+// hasProperty reports whether token appears in a space-separated properties value.
+func hasProperty(properties, token string) bool {
 	for p := range strings.FieldsSeq(properties) {
-		if p == "nav" {
+		if p == token {
 			return true
 		}
 	}
