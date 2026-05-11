@@ -202,28 +202,48 @@ func xmlDecodeBytes(data []byte, v any) error {
 // non-ASCII byte (e.g. CJK characters) with '&lt;'. Such sequences are never
 // valid epub XML element names but appear as unescaped text in some malformed
 // epubs (e.g. "<物語>" in an NCX docTitle).
+// CDATA sections are passed through unchanged.
 func escapeNonAsciiTags(data []byte) []byte {
 	if !bytes.Contains(data, []byte("<")) {
 		return data
 	}
 	var buf bytes.Buffer
 	buf.Grow(len(data))
-	for i := 0; i < len(data); i++ {
+	cdataStart := []byte("<![CDATA[")
+	cdataEnd := []byte("]]>")
+	for i := 0; i < len(data); {
+		// Pass CDATA sections through unchanged.
+		if bytes.HasPrefix(data[i:], cdataStart) {
+			end := bytes.Index(data[i+len(cdataStart):], cdataEnd)
+			if end >= 0 {
+				end += i + len(cdataStart) + len(cdataEnd)
+				buf.Write(data[i:end])
+				i = end
+				continue
+			}
+			// Unclosed CDATA — emit the rest as-is.
+			buf.Write(data[i:])
+			break
+		}
 		if data[i] != '<' {
 			buf.WriteByte(data[i])
+			i++
 			continue
 		}
 		// Check for </X where X is non-ASCII.
 		if i+2 < len(data) && data[i+1] == '/' && data[i+2] >= 0x80 {
 			buf.WriteString("&lt;")
+			i++
 			continue
 		}
 		// Check for <X where X is non-ASCII.
 		if i+1 < len(data) && data[i+1] >= 0x80 {
 			buf.WriteString("&lt;")
+			i++
 			continue
 		}
 		buf.WriteByte('<')
+		i++
 	}
 	return buf.Bytes()
 }

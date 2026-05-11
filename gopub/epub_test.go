@@ -153,8 +153,8 @@ func TestGetCover(t *testing.T) {
 func (ct *containerTest) TestMetadata(expTitle, expCreator string) {
 	meta := ct.c.Rootfiles[0].Metadata
 
-	if meta.Title.Name != expTitle {
-		ct.Errorf(expFormat, expTitle, meta.Title)
+	if got := meta.MainTitle().Name; got != expTitle {
+		ct.Errorf(expFormat, expTitle, got)
 	}
 
 	if meta.Creator[0].Name != expCreator {

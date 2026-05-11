@@ -1,6 +1,7 @@
 package gopub
 
 import (
+	"encoding/xml"
 	"io"
 	"strings"
 )
@@ -11,17 +12,56 @@ type NavDoc struct {
 }
 
 // NavSection represents a single <nav> element (e.g. toc, landmarks).
+// Type corresponds to the epub:type attribute (e.g. "toc", "landmarks", "page-list").
+// Go's xml package matches the local name "type" regardless of namespace prefix.
 type NavSection struct {
+	Type  string    `xml:"type,attr"`
 	Items []NavItem `xml:"ol>li"`
 }
 
 // NavItem represents a navigable location within the epub.
 type NavItem struct {
-	Link struct {
-		Href string `xml:"href,attr"`
-		Text string `xml:",chardata"`
-	} `xml:"a"`
+	Link     navLink   `xml:"a"`
 	SubItems []NavItem `xml:"ol>li"`
+}
+
+// navLink is an intermediate type for UnmarshalXML to capture all nested text.
+type navLink struct {
+	Href string
+	Text string
+}
+
+func (l *navLink) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	for _, attr := range start.Attr {
+		if attr.Name.Local == "href" {
+			l.Href = attr.Value
+		}
+	}
+	var sb strings.Builder
+	var collectText func() error
+	collectText = func() error {
+		for {
+			tok, err := d.Token()
+			if err != nil {
+				return err
+			}
+			switch t := tok.(type) {
+			case xml.CharData:
+				sb.Write(t)
+			case xml.StartElement:
+				if err := collectText(); err != nil {
+					return err
+				}
+			case xml.EndElement:
+				return nil
+			}
+		}
+	}
+	if err := collectText(); err != nil && err != io.EOF {
+		return err
+	}
+	l.Text = strings.TrimSpace(sb.String())
+	return nil
 }
 
 // setTOC loads the EPUB 3.0 navigation document for each rootfile.
@@ -47,6 +87,16 @@ func (r *Reader) setTOC() error {
 				return err
 			}
 			break
+		}
+	}
+	return nil
+}
+
+// TOCNav returns the NavSection with epub:type "toc", or nil if not found.
+func (rf *Rootfile) TOCNav() *NavSection {
+	for i := range rf.NavDoc.Navs {
+		if rf.NavDoc.Navs[i].Type == "toc" {
+			return &rf.NavDoc.Navs[i]
 		}
 	}
 	return nil

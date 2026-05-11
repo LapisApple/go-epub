@@ -25,31 +25,56 @@ type NavPoint struct {
 // Non-fatal: missing NCX is silently skipped.
 func (r *Reader) setNCX() error {
 	for _, rf := range r.Container.Rootfiles {
-		tocID := rf.Spine.Toc
-		if tocID == "" {
-			// Fall back to the conventional "ncx" manifest ID.
-			tocID = "ncx"
+		item := r.findNCXItem(rf)
+		if item == nil {
+			continue
 		}
 
-		for _, item := range rf.Manifest.Items {
-			if item.ID != tocID {
-				continue
-			}
+		f, err := item.Open()
+		if err != nil {
+			return err
+		}
+		data, err := io.ReadAll(f)
+		f.Close()
+		if err != nil {
+			return err
+		}
 
-			f, err := item.Open()
-			if err != nil {
-				return err
-			}
-			data, err := io.ReadAll(f)
-			f.Close()
-			if err != nil {
-				return err
-			}
+		if err := xmlDecodeBytes(data, &rf.NCX); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-			if err := xmlDecodeBytes(data, &rf.NCX); err != nil {
-				return err
+// findNCXItem locates the NCX manifest item for a rootfile.
+// Prefers the spine toc attribute, then a manifest item with the
+// application/x-dtbncx+xml media type, then the conventional "ncx" ID.
+func (r *Reader) findNCXItem(rf *Rootfile) *ManifestItem {
+	tocID := rf.Spine.Toc
+
+	// First pass: match by spine toc ID or conventional "ncx" ID.
+	// Second pass (if no toc attr): match by media type.
+	var byMediaType *ManifestItem
+	for i := range rf.Manifest.Items {
+		item := &rf.Manifest.Items[i]
+		if tocID != "" && item.ID == tocID {
+			return item
+		}
+		if item.MediaType == MediaTypeNCX {
+			if byMediaType == nil {
+				byMediaType = item
 			}
-			break
+		}
+	}
+	if byMediaType != nil {
+		return byMediaType
+	}
+	// Last resort: conventional ID "ncx".
+	for i := range rf.Manifest.Items {
+		item := &rf.Manifest.Items[i]
+		if item.ID == "ncx" {
+			return item
 		}
 	}
 	return nil

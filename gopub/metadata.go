@@ -4,13 +4,13 @@ import "strings"
 
 // Metadata contains publishing information about the epub.
 type Metadata struct {
-	Title       Title        `xml:"title"`
+	Title       []Title      `xml:"title"`
 	Language    string       `xml:"language"`
 	Identifier  []Identifier `xml:"identifier"`
 	Creator     []Creator    `xml:"creator"`
 	Contributor []Creator    `xml:"contributor"`
 	Publisher   Refinable    `xml:"publisher"`
-	Subject     string       `xml:"subject"`
+	Subject     []string     `xml:"subject"`
 	Description string       `xml:"description"`
 	Event       []Date       `xml:"date"`
 	Type        string       `xml:"type"`
@@ -22,10 +22,45 @@ type Metadata struct {
 	// Meta holds raw <meta> tags; consumed by processRefinements, then cleared.
 	Meta []MetaTag `xml:"meta"`
 	// Post-processed fields (not from XML directly).
-	OtherTags       map[string][]string `xml:"-"`
-	CoverManifestId string              `xml:"-"`
+	OtherTags      map[string][]string `xml:"-"`
+	CoverManifestId string             `xml:"-"`
 	// might contain duplicates
 	PrimaryWritingMode []string `xml:"-"`
+	// Common EPUB 3.0 meta properties extracted from OtherTags.
+	Modified    string `xml:"-"` // dcterms:modified
+	Series      string `xml:"-"` // belongs-to-collection
+	SeriesIndex string `xml:"-"` // group-position
+}
+
+// MainTitle returns the primary title. Priority: TitleType=="main" → TitleType=="" → first.
+// Returns zero Title if Metadata has no titles.
+func (m *Metadata) MainTitle() Title {
+	var fallback Title
+	hasFallback := false
+	for _, t := range m.Title {
+		if t.TitleType == "main" {
+			return t
+		}
+		if !hasFallback && t.TitleType == "" {
+			fallback = t
+			hasFallback = true
+		}
+	}
+	if hasFallback {
+		return fallback
+	}
+	if len(m.Title) > 0 {
+		return m.Title[0]
+	}
+	return Title{}
+}
+
+// PrimarySubject returns the first subject, or "" if none.
+func (m *Metadata) PrimarySubject() string {
+	if len(m.Subject) > 0 {
+		return m.Subject[0]
+	}
+	return ""
 }
 
 // Identifier represents a dc:identifier element with optional scheme.
@@ -120,16 +155,21 @@ func processRefinements(metadata *Metadata) {
 	}
 
 	// Apply dcterms overrides for standard fields.
-	setIfEmpty(refinesDCTerms, "title", &metadata.Title.Name)
+	if len(metadata.Title) > 0 {
+		setIfEmpty(refinesDCTerms, "title", &metadata.Title[0].Name)
+	}
 	setIfEmpty(refinesDCTerms, "language", &metadata.Language)
 	if v, ok := refinesDCTerms["identifier"]; ok {
 		metadata.Identifier = append(metadata.Identifier, Identifier{Value: v})
 	}
 
-	// Apply title refinements.
-	if metadata.Title.ID != "" {
-		setIfEmpty(refinesFileAs, metadata.Title.ID, &metadata.Title.FileAs)
-		setIfEmpty(refinesTitleType, metadata.Title.ID, &metadata.Title.TitleType)
+	// Apply title refinements to all titles.
+	for i := range metadata.Title {
+		t := &metadata.Title[i]
+		if t.ID != "" {
+			setIfEmpty(refinesFileAs, t.ID, &t.FileAs)
+			setIfEmpty(refinesTitleType, t.ID, &t.TitleType)
+		}
 	}
 
 	// Apply publisher refinements.
@@ -149,6 +189,20 @@ func processRefinements(metadata *Metadata) {
 	if v, ok := metadata.OtherTags["primary-writing-mode"]; ok {
 		metadata.PrimaryWritingMode = append(metadata.PrimaryWritingMode, v...)
 		delete(metadata.OtherTags, "primary-writing-mode")
+	}
+
+	// Extract common EPUB 3.0 meta properties into dedicated fields.
+	if v, ok := metadata.OtherTags["dcterms:modified"]; ok && len(v) > 0 {
+		metadata.Modified = v[0]
+		delete(metadata.OtherTags, "dcterms:modified")
+	}
+	if v, ok := metadata.OtherTags["belongs-to-collection"]; ok && len(v) > 0 {
+		metadata.Series = v[0]
+		delete(metadata.OtherTags, "belongs-to-collection")
+	}
+	if v, ok := metadata.OtherTags["group-position"]; ok && len(v) > 0 {
+		metadata.SeriesIndex = v[0]
+		delete(metadata.OtherTags, "group-position")
 	}
 
 	metadata.Meta = nil
