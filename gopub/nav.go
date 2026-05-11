@@ -73,12 +73,7 @@ func (r *Reader) setTOC() error {
 				continue
 			}
 
-			f, err := item.Open()
-			if err != nil {
-				return err
-			}
-			data, err := io.ReadAll(f)
-			f.Close()
+			data, err := r.readItem(&item)
 			if err != nil {
 				return err
 			}
@@ -103,7 +98,7 @@ func (rf *Rootfile) TOCNav() *NavSection {
 }
 
 // navItemName searches the NavDoc for a display name matching href.
-func (rf Rootfile) navItemName(href string) string {
+func (rf *Rootfile) navItemName(href string) string {
 	for _, nav := range rf.NavDoc.Navs {
 		for _, item := range nav.Items {
 			if label := item.lookupNavItem(href); label != "" {
@@ -115,7 +110,11 @@ func (rf Rootfile) navItemName(href string) string {
 }
 
 func (item NavItem) lookupNavItem(href string) string {
-	if item.Link.Href == href {
+	navHref := item.Link.Href
+	if i := strings.IndexByte(navHref, '#'); i >= 0 {
+		navHref = navHref[:i]
+	}
+	if navHref == href {
 		return item.Link.Text
 	}
 	for _, sub := range item.SubItems {

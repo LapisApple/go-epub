@@ -22,8 +22,8 @@ type Metadata struct {
 	// Meta holds raw <meta> tags; consumed by processRefinements, then cleared.
 	Meta []MetaTag `xml:"meta"`
 	// Post-processed fields (not from XML directly).
-	OtherTags      map[string][]string `xml:"-"`
-	CoverManifestId string             `xml:"-"`
+	OtherTags       map[string][]string `xml:"-"`
+	CoverManifestId string              `xml:"-"`
 	// might contain duplicates
 	PrimaryWritingMode []string `xml:"-"`
 	// Common EPUB 3.0 meta properties extracted from OtherTags.

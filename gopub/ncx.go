@@ -1,6 +1,7 @@
 package gopub
 
-import "io"
+import "strings"
+
 
 // NCX represents an EPUB 2.0 compatible navigation document.
 type NCX struct {
@@ -11,7 +12,7 @@ type NCX struct {
 // NavPoint represents a location within the epub that can be navigated to.
 type NavPoint struct {
 	ID        string `xml:"id,attr"`
-	PlayOrder string `xml:"playOrder,attr"`
+	PlayOrder int `xml:"playOrder,attr"`
 	NavLabel  struct {
 		Text string `xml:"text"`
 	} `xml:"navLabel"`
@@ -30,12 +31,7 @@ func (r *Reader) setNCX() error {
 			continue
 		}
 
-		f, err := item.Open()
-		if err != nil {
-			return err
-		}
-		data, err := io.ReadAll(f)
-		f.Close()
+		data, err := r.readItem(item)
 		if err != nil {
 			return err
 		}
@@ -81,7 +77,7 @@ func (r *Reader) findNCXItem(rf *Rootfile) *ManifestItem {
 }
 
 // ncxItemName searches the NCX for a display name matching href.
-func (rf Rootfile) ncxItemName(href string) string {
+func (rf *Rootfile) ncxItemName(href string) string {
 	for _, point := range rf.NCX.NavPoints {
 		if label := point.lookupNavPoint(href); label != "" {
 			return label
@@ -91,7 +87,11 @@ func (rf Rootfile) ncxItemName(href string) string {
 }
 
 func (np NavPoint) lookupNavPoint(href string) string {
-	if np.Content.Src == href {
+	src := np.Content.Src
+	if i := strings.IndexByte(src, '#'); i >= 0 {
+		src = src[:i]
+	}
+	if src == href {
 		return np.NavLabel.Text
 	}
 	for _, child := range np.NavPoints {

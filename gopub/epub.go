@@ -4,28 +4,41 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/xml"
+	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path"
+	"strings"
 
 	"golang.org/x/net/html/charset"
 )
+
+// ReaderOptions configures optional behaviour for Reader and ReadCloser.
+// The zero value is valid and applies no restrictions.
+type ReaderOptions struct {
+	// MaxFileSize limits how many bytes are read from any single file inside
+	// the EPUB ZIP. 0 means unlimited. Set this when processing untrusted
+	// EPUBs to guard against ZIP-bomb / OOM attacks.
+	MaxFileSize int64
+}
 
 // Reader represents a readable epub file.
 type Reader struct {
 	Container
 	files map[string]*zip.File
+	opts  ReaderOptions
 }
 
 // ReadCloser represents a readable epub file that can be closed.
 type ReadCloser struct {
 	Reader
-	F_SIZE int64
-	f      *os.File
+	Size int64
+	f    *os.File
 }
 
 // OpenReader opens the epub file at name and returns a ReadCloser.
-func OpenReader(name string) (*ReadCloser, error) {
+func OpenReader(name string, opts ...ReaderOptions) (*ReadCloser, error) {
 	f, err := os.Open(name)
 	if err != nil {
 		return nil, err
@@ -37,7 +50,10 @@ func OpenReader(name string) (*ReadCloser, error) {
 		return nil, err
 	}
 
-	rc := &ReadCloser{f: f, F_SIZE: fi.Size()}
+	rc := &ReadCloser{f: f, Size: fi.Size()}
+	if len(opts) > 0 {
+		rc.opts = opts[0]
+	}
 	z, err := zip.NewReader(f, fi.Size())
 	if err != nil {
 		f.Close()
@@ -53,13 +69,16 @@ func OpenReader(name string) (*ReadCloser, error) {
 }
 
 // NewReader reads an epub from ra. The caller retains ownership of ra.
-func NewReader(ra io.ReaderAt, size int64) (*Reader, error) {
+func NewReader(ra io.ReaderAt, size int64, opts ...ReaderOptions) (*Reader, error) {
 	z, err := zip.NewReader(ra, size)
 	if err != nil {
 		return nil, err
 	}
 
 	r := new(Reader)
+	if len(opts) > 0 {
+		r.opts = opts[0]
+	}
 	if err = r.init(z); err != nil {
 		return nil, err
 	}
@@ -67,10 +86,39 @@ func NewReader(ra io.ReaderAt, size int64) (*Reader, error) {
 }
 
 // Close closes the epub file.
-func (rc *ReadCloser) Close() {
+func (rc *ReadCloser) Close() error {
 	if rc.f != nil {
-		rc.f.Close()
+		return rc.f.Close()
 	}
+	return nil
+}
+
+// readAll reads from r, honouring MaxFileSize when set.
+func (reader *Reader) readAll(r io.Reader) ([]byte, error) {
+	if reader.opts.MaxFileSize > 0 {
+		return io.ReadAll(io.LimitReader(r, reader.opts.MaxFileSize))
+	}
+	return io.ReadAll(r)
+}
+
+// readZipFile opens a ZIP entry, reads it fully, and closes it.
+func (reader *Reader) readZipFile(zf *zip.File) ([]byte, error) {
+	f, err := zf.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return reader.readAll(f)
+}
+
+// readItem opens a ManifestItem, reads it fully, and closes it.
+func (reader *Reader) readItem(item *ManifestItem) ([]byte, error) {
+	f, err := item.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return reader.readAll(f)
 }
 
 func (r *Reader) init(z *zip.Reader) error {
@@ -100,20 +148,9 @@ func (r *Reader) setContainer() error {
 		return ErrNoContainerfile
 	}
 
-	/*
-		if containerZipFile == nil {
-			return ErrBadContainerfile
-		}
-	*/
-	f, err := containerZipFile.Open()
+	data, err := r.readZipFile(containerZipFile)
 	if err != nil {
 		return ErrBadContainerfile
-	}
-	defer f.Close()
-
-	data, err := io.ReadAll(f)
-	if err != nil {
-		return err
 	}
 
 	if err := xmlDecodeBytes(data, &r.Container); err != nil {
@@ -133,19 +170,20 @@ func (r *Reader) setPackages() error {
 			return ErrBadRootfile
 		}
 
-		f, err := zf.Open()
-		if err != nil {
-			return err
-		}
-
-		data, err := io.ReadAll(f)
-		f.Close()
+		data, err := r.readZipFile(zf)
 		if err != nil {
 			return err
 		}
 
 		if err := xmlDecodeBytes(data, &rf.Package); err != nil {
 			return err
+		}
+
+		if ver := rf.Package.Version; ver != "" {
+			major := strings.SplitN(ver, ".", 2)[0]
+			if major != "2" && major != "3" {
+				return fmt.Errorf("epub: unsupported version %q", ver)
+			}
 		}
 
 		// Cover from manifest properties (EPUB 3.0).
@@ -168,7 +206,8 @@ func (r *Reader) setItems() error {
 		for i := range rf.Manifest.Items {
 			item := &rf.Manifest.Items[i]
 			itemMap[item.ID] = item
-			abs := path.Join(path.Dir(rf.FullPath), item.HREF)
+			href, _ := url.PathUnescape(item.HREF)
+			abs := path.Join(path.Dir(rf.FullPath), href)
 			item.F = r.files[abs]
 		}
 

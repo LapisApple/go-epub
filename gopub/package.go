@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"io"
+	"net/url"
 	"path"
 	"strings"
 )
@@ -54,7 +55,7 @@ func (m *Manifest) itemsByMediaTypePrefix(prefix string) []*ManifestItem {
 	var out []*ManifestItem
 	for i := range m.Items {
 		item := &m.Items[i]
-		if item.MediaType == prefix || strings.HasPrefix(item.MediaType, prefix) {
+		if strings.HasPrefix(item.MediaType, prefix) {
 			out = append(out, item)
 		}
 	}
@@ -152,6 +153,7 @@ func resolveSVGCover(svgItem *ManifestItem, rf *Rootfile) (*ManifestItem, error)
 	}
 
 	// Both SVG HREF and manifest HREFs are relative to the OPF dir.
+	imgHref, _ = url.PathUnescape(imgHref)
 	resolved := path.Join(path.Dir(svgItem.HREF), imgHref)
 	for i := range rf.Manifest.Items {
 		item := &rf.Manifest.Items[i]
@@ -211,6 +213,7 @@ func resolveXHTMLCover(xhtmlItem *ManifestItem, rf *Rootfile) (*ManifestItem, er
 	if i := strings.IndexByte(imgSrc, '#'); i >= 0 {
 		imgSrc = imgSrc[:i]
 	}
+	imgSrc, _ = url.PathUnescape(imgSrc)
 	resolved := path.Join(opfDir, imgSrc)
 	for i := range rf.Manifest.Items {
 		item := &rf.Manifest.Items[i]
