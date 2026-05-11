@@ -1,4 +1,4 @@
-package epub
+package gopub
 
 const containerPath = "META-INF/container.xml"
 

@@ -1,4 +1,4 @@
-package epub
+package gopub
 
 import (
 	"archive/zip"
@@ -23,10 +23,10 @@ type Manifest struct {
 
 // ManifestItem represents a file stored in the epub.
 type ManifestItem struct {
-	ID         string    `xml:"id,attr"`
-	HREF       string    `xml:"href,attr"`
-	MediaType  string    `xml:"media-type,attr"`
-	Properties string    `xml:"properties,attr"`
+	ID         string `xml:"id,attr"`
+	HREF       string `xml:"href,attr"`
+	MediaType  string `xml:"media-type,attr"`
+	Properties string `xml:"properties,attr"`
 	F          *zip.File
 }
 
