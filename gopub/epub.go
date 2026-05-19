@@ -27,14 +27,14 @@ type ReaderOptions struct {
 type Reader struct {
 	Container
 	files map[string]*zip.File
+	Size  int64
 	opts  ReaderOptions
 }
 
 // ReadCloser represents a readable epub file that can be closed.
 type ReadCloser struct {
 	Reader
-	Size int64
-	f    *os.File
+	f *os.File
 }
 
 // OpenReader opens the epub file at name and returns a ReadCloser.
@@ -50,7 +50,7 @@ func OpenReader(name string, opts ...ReaderOptions) (*ReadCloser, error) {
 		return nil, err
 	}
 
-	rc := &ReadCloser{f: f, Size: fi.Size()}
+	rc := &ReadCloser{f: f, Reader: Reader{Size: fi.Size()}}
 	if len(opts) > 0 {
 		rc.opts = opts[0]
 	}
@@ -76,6 +76,7 @@ func NewReader(ra io.ReaderAt, size int64, opts ...ReaderOptions) (*Reader, erro
 	}
 
 	r := new(Reader)
+	r.Size = size
 	if len(opts) > 0 {
 		r.opts = opts[0]
 	}
