@@ -44,6 +44,11 @@ func OpenReader(name string, opts ...ReaderOptions) (*ReadCloser, error) {
 		return nil, err
 	}
 
+	return NewReaderOwning(f)
+}
+
+// NewReader reads an epub from f. The gopub.ReadCloser gains ownership of f.
+func NewReaderOwning(f *os.File, opts ...ReaderOptions) (*ReadCloser, error) {
 	fi, err := f.Stat()
 	if err != nil {
 		f.Close()
