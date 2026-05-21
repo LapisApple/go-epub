@@ -5,20 +5,20 @@ import "strings"
 // Metadata contains publishing information about the epub.
 type Metadata struct {
 	Title       []Title      `xml:"title"`
-	Language    string       `xml:"language"`
+	Language    []string     `xml:"language"`
 	Identifier  []Identifier `xml:"identifier"`
 	Creator     []Creator    `xml:"creator"`
 	Contributor []Creator    `xml:"contributor"`
-	Publisher   Refinable    `xml:"publisher"`
+	Publisher   []Refinable  `xml:"publisher"`
 	Subject     []string     `xml:"subject"`
 	Description string       `xml:"description"`
 	Event       []Date       `xml:"date"`
 	Type        string       `xml:"type"`
 	Format      string       `xml:"format"`
 	Source      string       `xml:"source"`
-	Relation    string       `xml:"relation"`
+	Relation    []string     `xml:"relation"`
 	Coverage    string       `xml:"coverage"`
-	Rights      string       `xml:"rights"`
+	Rights      []string     `xml:"rights"`
 	// Meta holds raw <meta> tags; consumed by processRefinements, then cleared.
 	Meta []MetaTag `xml:"meta"`
 	// Post-processed fields (not from XML directly).
@@ -53,6 +53,22 @@ func (m *Metadata) MainTitle() Title {
 		return m.Title[0]
 	}
 	return Title{}
+}
+
+// PrimaryLanguage returns the first language, or "" if none.
+func (m *Metadata) PrimaryLanguage() string {
+	if len(m.Language) > 0 {
+		return m.Language[0]
+	}
+	return ""
+}
+
+// PrimaryPublisher returns the first publisher, or zero Refinable if none.
+func (m *Metadata) PrimaryPublisher() Refinable {
+	if len(m.Publisher) > 0 {
+		return m.Publisher[0]
+	}
+	return Refinable{}
 }
 
 // PrimarySubject returns the first subject, or "" if none.
@@ -158,7 +174,9 @@ func processRefinements(metadata *Metadata) {
 	if len(metadata.Title) > 0 {
 		setIfEmpty(refinesDCTerms, "title", &metadata.Title[0].Name)
 	}
-	setIfEmpty(refinesDCTerms, "language", &metadata.Language)
+	if v, ok := refinesDCTerms["language"]; ok {
+		metadata.Language = append(metadata.Language, v)
+	}
 	if v, ok := refinesDCTerms["identifier"]; ok {
 		metadata.Identifier = append(metadata.Identifier, Identifier{Value: v})
 	}
@@ -173,8 +191,11 @@ func processRefinements(metadata *Metadata) {
 	}
 
 	// Apply publisher refinements.
-	if metadata.Publisher.ID != "" {
-		setIfEmpty(refinesFileAs, metadata.Publisher.ID, &metadata.Publisher.FileAs)
+	for i := range metadata.Publisher {
+		p := &metadata.Publisher[i]
+		if p.ID != "" {
+			setIfEmpty(refinesFileAs, p.ID, &p.FileAs)
+		}
 	}
 
 	// Apply creator/contributor refinements.
